@@ -26,9 +26,9 @@ variable "vm_size" {
   default = "Standard_D2s_v3"  # 2 vCPU, 8 GB RAM - minimum for mini-cloud
 }
 
-variable "ssh_public_key_path" {
-  type    = string
-  default = "~/.ssh/id_rsa.pub"
+variable "ssh_public_key" {
+  type        = string
+  description = "SSH public key for VM access"
 }
 
 resource "azurerm_resource_group" "rg" {
@@ -159,7 +159,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
 
   admin_ssh_key {
     username   = "azureuser"
-    public_key = file(var.ssh_public_key_path)
+    public_key = var.ssh_public_key
   }
 
   os_disk {

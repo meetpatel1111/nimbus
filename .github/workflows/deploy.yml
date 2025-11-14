@@ -160,6 +160,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ github.event.inputs.region || 'us-east-1' }}
 
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+          chmod 600 ~/.ssh/id_rsa
+          chmod 644 ~/.ssh/id_rsa.pub
+
       - name: Terraform Init
         run: |
           cd infra/terraform/aws
@@ -171,6 +178,7 @@ jobs:
           terraform plan \
             -var="instance_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
             -var="aws_region=${{ github.event.inputs.region || 'us-east-1' }}" \
+            -var="ssh_public_key=$(cat ~/.ssh/id_rsa.pub)" \
             -out=tfplan
 
       - name: Terraform Apply
@@ -184,6 +192,13 @@ jobs:
           cd infra/terraform/aws
           echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
           echo "instance_id=$(terraform output -raw instance_id)" >> $GITHUB_OUTPUT
+
+      - name: Save SSH private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-private-key
+          path: ~/.ssh/id_rsa
+          retention-days: 1
 
       - name: Save Terraform State
         uses: actions/upload-artifact@v4
@@ -221,6 +236,13 @@ jobs:
               "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
             }
 
+      - name: Generate SSH key pair
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keygen -t rsa -b 4096 -f ~/.ssh/id_rsa -N ""
+          chmod 600 ~/.ssh/id_rsa
+          chmod 644 ~/.ssh/id_rsa.pub
+
       - name: Terraform Init
         run: |
           cd infra/terraform/azure
@@ -237,6 +259,7 @@ jobs:
           terraform plan \
             -var="vm_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
             -var="location=${{ github.event.inputs.region || 'eastus' }}" \
+            -var="ssh_public_key=$(cat ~/.ssh/id_rsa.pub)" \
             -out=tfplan
 
       - name: Terraform Apply
@@ -255,6 +278,13 @@ jobs:
           cd infra/terraform/azure
           echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
           echo "vm_id=$(terraform output -raw vm_id)" >> $GITHUB_OUTPUT
+
+      - name: Save SSH private key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ssh-private-key
+          path: ~/.ssh/id_rsa
+          retention-days: 1
 
       - name: Save Terraform State
         uses: actions/upload-artifact@v4
@@ -286,10 +316,14 @@ jobs:
             echo "user=azureuser" >> $GITHUB_OUTPUT
           fi
 
+      - name: Download SSH private key
+        uses: actions/download-artifact@v4
+        with:
+          name: ssh-private-key
+          path: ~/.ssh/
+
       - name: Setup SSH key
         run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
           ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
 
