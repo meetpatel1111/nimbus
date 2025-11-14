@@ -97,6 +97,10 @@ resource "aws_security_group" "nimbus" {
 resource "aws_key_pair" "nimbus" {
   key_name   = "${var.instance_name}-key"
   public_key = var.ssh_public_key
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_instance" "nimbus" {

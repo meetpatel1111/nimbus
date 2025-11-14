@@ -167,6 +167,12 @@ jobs:
           chmod 600 ~/.ssh/id_rsa
           chmod 644 ~/.ssh/id_rsa.pub
 
+      - name: Delete existing SSH key pair (if exists)
+        continue-on-error: true
+        run: |
+          KEY_NAME="${{ github.event.inputs.instance_name || 'nimbus-cloud' }}-key"
+          aws ec2 delete-key-pair --key-name "$KEY_NAME" || true
+
       - name: Terraform Init
         run: |
           cd infra/terraform/aws
