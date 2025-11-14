@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Service
+metadata: { name: nimbus-frontend }
+spec:
+  selector: { app: nimbus-frontend }
+  ports: [{ port: 80, targetPort: 80 }]

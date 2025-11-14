@@ -1,0 +1,246 @@
+// Kubernetes Client for Real Service Management
+// This module provides functions to interact with a real k3s cluster
+
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+
+/**
+ * Check if kubectl is available and cluster is accessible
+ */
+async function checkClusterConnection() {
+  try {
+    const { stdout } = await execAsync('kubectl cluster-info');
+    return { connected: true, info: stdout };
+  } catch (error) {
+    return { connected: false, error: error.message };
+  }
+}
+
+/**
+ * Get all pods across all namespaces
+ */
+async function getAllPods() {
+  try {
+    const { stdout } = await execAsync('kubectl get pods -A -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting pods:', error);
+    return null;
+  }
+}
+
+/**
+ * Get all services across all namespaces
+ */
+async function getAllServices() {
+  try {
+    const { stdout } = await execAsync('kubectl get svc -A -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting services:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a new deployment (service)
+ */
+async function createDeployment(namespace, name, image, replicas = 1, port = 80) {
+  const deployment = {
+    apiVersion: 'apps/v1',
+    kind: 'Deployment',
+    metadata: {
+      name: name,
+      namespace: namespace
+    },
+    spec: {
+      replicas: replicas,
+      selector: {
+        matchLabels: {
+          app: name
+        }
+      },
+      template: {
+        metadata: {
+          labels: {
+            app: name
+          }
+        },
+        spec: {
+          containers: [{
+            name: name,
+            image: image,
+            ports: [{
+              containerPort: port
+            }]
+          }]
+        }
+      }
+    }
+  };
+
+  try {
+    const yaml = JSON.stringify(deployment);
+    const { stdout } = await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Create a service to expose a deployment
+ */
+async function createService(namespace, name, port, targetPort, type = 'ClusterIP') {
+  const service = {
+    apiVersion: 'v1',
+    kind: 'Service',
+    metadata: {
+      name: name,
+      namespace: namespace
+    },
+    spec: {
+      type: type,
+      selector: {
+        app: name
+      },
+      ports: [{
+        port: port,
+        targetPort: targetPort
+      }]
+    }
+  };
+
+  try {
+    const yaml = JSON.stringify(service);
+    const { stdout } = await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a deployment
+ */
+async function deleteDeployment(namespace, name) {
+  try {
+    const { stdout } = await execAsync(`kubectl delete deployment ${name} -n ${namespace}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a service
+ */
+async function deleteService(namespace, name) {
+  try {
+    const { stdout } = await execAsync(`kubectl delete svc ${name} -n ${namespace}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Restart a deployment (by deleting and recreating pods)
+ */
+async function restartDeployment(namespace, name) {
+  try {
+    const { stdout } = await execAsync(`kubectl rollout restart deployment/${name} -n ${namespace}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Get deployment status
+ */
+async function getDeploymentStatus(namespace, name) {
+  try {
+    const { stdout } = await execAsync(`kubectl get deployment ${name} -n ${namespace} -o json`);
+    return JSON.parse(stdout);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Create a PersistentVolumeClaim
+ */
+async function createPVC(namespace, name, size, storageClass = 'longhorn') {
+  const pvc = {
+    apiVersion: 'v1',
+    kind: 'PersistentVolumeClaim',
+    metadata: {
+      name: name,
+      namespace: namespace
+    },
+    spec: {
+      accessModes: ['ReadWriteOnce'],
+      storageClassName: storageClass,
+      resources: {
+        requests: {
+          storage: size
+        }
+      }
+    }
+  };
+
+  try {
+    const yaml = JSON.stringify(pvc);
+    const { stdout } = await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Install a Helm chart
+ */
+async function installHelmChart(name, chart, namespace, values = {}) {
+  try {
+    const valuesStr = Object.entries(values)
+      .map(([key, val]) => `--set ${key}=${val}`)
+      .join(' ');
+    
+    const { stdout } = await execAsync(
+      `helm upgrade --install ${name} ${chart} -n ${namespace} --create-namespace ${valuesStr}`
+    );
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Uninstall a Helm release
+ */
+async function uninstallHelmChart(name, namespace) {
+  try {
+    const { stdout } = await execAsync(`helm uninstall ${name} -n ${namespace}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+module.exports = {
+  checkClusterConnection,
+  getAllPods,
+  getAllServices,
+  createDeployment,
+  createService,
+  deleteDeployment,
+  deleteService,
+  restartDeployment,
+  getDeploymentStatus,
+  createPVC,
+  installHelmChart,
+  uninstallHelmChart
+};

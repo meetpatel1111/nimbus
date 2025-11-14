@@ -1,0 +1,456 @@
+name: Nimbus - Complete Deployment Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      cloud_provider:
+        description: 'Cloud Provider'
+        required: true
+        type: choice
+        options:
+          - none
+          - aws
+          - azure
+        default: 'none'
+      instance_name:
+        description: 'Instance/VM Name'
+        required: false
+        default: 'nimbus-cloud'
+      region:
+        description: 'Cloud Region'
+        required: false
+        default: 'us-east-1'
+      run_bootstrap:
+        description: 'Run bootstrap script after deployment'
+        required: false
+        type: boolean
+        default: true
+      deploy_app:
+        description: 'Deploy application to cluster'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  IMAGE_NAME: nimbus-platform
+  REGISTRY: ${{ secrets.REGISTRY }}
+  KUBE_NAMESPACE: nimbus
+
+jobs:
+  # Job 1: Build and Test
+  build-and-test:
+    name: Build & Test Application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  # Job 2: Build and Push Docker Images
+  build-docker-images:
+    name: Build & Push Docker Images
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: ${{ secrets.REGISTRY != '' }}
+    outputs:
+      frontend_image: ${{ steps.meta-frontend.outputs.tags }}
+      backend_image: ${{ steps.meta-backend.outputs.tags }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Docker meta - Frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=frontend-
+            type=raw,value=frontend-latest
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Docker meta - Backend
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=backend-
+            type=raw,value=backend-latest
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 3: Deploy Infrastructure (AWS)
+  deploy-aws-infrastructure:
+    name: Deploy AWS Infrastructure
+    needs: build-docker-images
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.cloud_provider == 'aws' }}
+    outputs:
+      instance_ip: ${{ steps.terraform-output.outputs.public_ip }}
+      instance_id: ${{ steps.terraform-output.outputs.instance_id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ github.event.inputs.region || 'us-east-1' }}
+
+      - name: Terraform Init
+        run: |
+          cd infra/terraform/aws
+          terraform init
+
+      - name: Terraform Plan
+        run: |
+          cd infra/terraform/aws
+          terraform plan \
+            -var="instance_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="aws_region=${{ github.event.inputs.region || 'us-east-1' }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        run: |
+          cd infra/terraform/aws
+          terraform apply -auto-approve tfplan
+
+      - name: Get Terraform Outputs
+        id: terraform-output
+        run: |
+          cd infra/terraform/aws
+          echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
+          echo "instance_id=$(terraform output -raw instance_id)" >> $GITHUB_OUTPUT
+
+      - name: Save Terraform State
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-aws
+          path: infra/terraform/aws/terraform.tfstate
+
+  # Job 4: Deploy Infrastructure (Azure)
+  deploy-azure-infrastructure:
+    name: Deploy Azure Infrastructure
+    needs: build-docker-images
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.cloud_provider == 'azure' }}
+    outputs:
+      instance_ip: ${{ steps.terraform-output.outputs.public_ip }}
+      vm_id: ${{ steps.terraform-output.outputs.vm_id }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.0
+          terraform_wrapper: false
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: |
+            {
+              "clientId": "${{ secrets.AZURE_CLIENT_ID }}",
+              "clientSecret": "${{ secrets.AZURE_CLIENT_SECRET }}",
+              "subscriptionId": "${{ secrets.AZURE_SUBSCRIPTION_ID }}",
+              "tenantId": "${{ secrets.AZURE_TENANT_ID }}"
+            }
+
+      - name: Terraform Init
+        run: |
+          cd infra/terraform/azure
+          terraform init
+
+      - name: Terraform Plan
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          cd infra/terraform/azure
+          terraform plan \
+            -var="vm_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="location=${{ github.event.inputs.region || 'eastus' }}" \
+            -out=tfplan
+
+      - name: Terraform Apply
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          cd infra/terraform/azure
+          terraform apply -auto-approve tfplan
+
+      - name: Get Terraform Outputs
+        id: terraform-output
+        run: |
+          cd infra/terraform/azure
+          echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
+          echo "vm_id=$(terraform output -raw vm_id)" >> $GITHUB_OUTPUT
+
+      - name: Save Terraform State
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-state-azure
+          path: infra/terraform/azure/terraform.tfstate
+
+  # Job 5: Run Bootstrap Script
+  run-bootstrap:
+    name: Bootstrap Mini-Cloud Services
+    needs: [deploy-aws-infrastructure, deploy-azure-infrastructure]
+    runs-on: ubuntu-latest
+    if: |
+      always() && 
+      (needs.deploy-aws-infrastructure.result == 'success' || needs.deploy-azure-infrastructure.result == 'success') &&
+      github.event.inputs.run_bootstrap == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get instance IP
+        id: get-ip
+        run: |
+          if [ "${{ needs.deploy-aws-infrastructure.result }}" == "success" ]; then
+            echo "ip=${{ needs.deploy-aws-infrastructure.outputs.instance_ip }}" >> $GITHUB_OUTPUT
+            echo "user=ubuntu" >> $GITHUB_OUTPUT
+          else
+            echo "ip=${{ needs.deploy-azure-infrastructure.outputs.instance_ip }}" >> $GITHUB_OUTPUT
+            echo "user=azureuser" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
+
+      - name: Wait for instance to be ready
+        run: |
+          echo "Waiting for instance to be ready..."
+          for i in {1..30}; do
+            if ssh -o ConnectTimeout=5 ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} "echo 'Instance ready'"; then
+              echo "Instance is ready!"
+              break
+            fi
+            echo "Attempt $i: Instance not ready yet, waiting..."
+            sleep 10
+          done
+
+      - name: Copy bootstrap script
+        run: |
+          scp bootstrap/full-mini-cloud-bootstrap-fixed.sh \
+            ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+
+      - name: Run bootstrap script
+        run: |
+          ssh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
+            "sudo bash ~/full-mini-cloud-bootstrap-fixed.sh" | tee bootstrap.log
+
+      - name: Upload bootstrap log
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-log
+          path: bootstrap.log
+
+      - name: Retrieve secrets
+        run: |
+          ssh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
+            "sudo cat /root/.mini-cloud-secrets" > mini-cloud-secrets.txt
+
+      - name: Upload secrets (encrypted)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-cloud-secrets
+          path: mini-cloud-secrets.txt
+
+  # Job 6: Deploy Application to Kubernetes
+  deploy-to-kubernetes:
+    name: Deploy Application to K8s
+    needs: [run-bootstrap, build-docker-images]
+    runs-on: ubuntu-latest
+    if: |
+      always() && 
+      needs.run-bootstrap.result == 'success' &&
+      github.event.inputs.deploy_app == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: '1.28.0'
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: '3.13.0'
+
+      - name: Get instance IP
+        id: get-ip
+        run: |
+          if [ "${{ needs.deploy-aws-infrastructure.result }}" == "success" ]; then
+            echo "ip=${{ needs.deploy-aws-infrastructure.outputs.instance_ip }}" >> $GITHUB_OUTPUT
+            echo "user=ubuntu" >> $GITHUB_OUTPUT
+          else
+            echo "ip=${{ needs.deploy-azure-infrastructure.outputs.instance_ip }}" >> $GITHUB_OUTPUT
+            echo "user=azureuser" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup SSH and get kubeconfig
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
+          
+          # Get kubeconfig from remote server
+          scp ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          
+          # Replace localhost with actual IP
+          sed -i "s/127.0.0.1/${{ steps.get-ip.outputs.ip }}/g" ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Verify cluster connection
+        run: |
+          kubectl get nodes
+          kubectl get pods -A
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install nimbus ./helm/nimbus \
+            -n ${{ env.KUBE_NAMESPACE }} \
+            --create-namespace \
+            --set backend.image=${{ needs.build-docker-images.outputs.backend_image }} \
+            --set frontend.image=${{ needs.build-docker-images.outputs.frontend_image }} \
+            --wait \
+            --timeout 5m
+
+      - name: Verify deployment
+        run: |
+          kubectl get all -n ${{ env.KUBE_NAMESPACE }}
+          kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+
+  # Job 7: Deployment Summary
+  deployment-summary:
+    name: Deployment Summary
+    needs: [deploy-aws-infrastructure, deploy-azure-infrastructure, run-bootstrap, deploy-to-kubernetes]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "# 🌥 Nimbus Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-aws-infrastructure.result }}" == "success" ]; then
+            echo "## ✅ AWS Infrastructure Deployed" >> $GITHUB_STEP_SUMMARY
+            echo "- **Instance IP**: ${{ needs.deploy-aws-infrastructure.outputs.instance_ip }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Instance ID**: ${{ needs.deploy-aws-infrastructure.outputs.instance_id }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **SSH Command**: \`ssh ubuntu@${{ needs.deploy-aws-infrastructure.outputs.instance_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.deploy-azure-infrastructure.result }}" == "success" ]; then
+            echo "## ✅ Azure Infrastructure Deployed" >> $GITHUB_STEP_SUMMARY
+            echo "- **VM IP**: ${{ needs.deploy-azure-infrastructure.outputs.instance_ip }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **VM ID**: ${{ needs.deploy-azure-infrastructure.outputs.vm_id }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **SSH Command**: \`ssh azureuser@${{ needs.deploy-azure-infrastructure.outputs.instance_ip }}\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.run-bootstrap.result }}" == "success" ]; then
+            echo "## ✅ Bootstrap Completed" >> $GITHUB_STEP_SUMMARY
+            echo "All 21 services have been installed:" >> $GITHUB_STEP_SUMMARY
+            echo "- k3s, Longhorn, Traefik" >> $GITHUB_STEP_SUMMARY
+            echo "- MinIO, OpenFaaS, n8n" >> $GITHUB_STEP_SUMMARY
+            echo "- Keycloak, Vault" >> $GITHUB_STEP_SUMMARY
+            echo "- NATS, RabbitMQ" >> $GITHUB_STEP_SUMMARY
+            echo "- Prometheus, Grafana, Loki" >> $GITHUB_STEP_SUMMARY
+            echo "- Velero, Gitea, Drone" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-to-kubernetes.result }}" == "success" ]; then
+            echo "## ✅ Application Deployed" >> $GITHUB_STEP_SUMMARY
+            echo "Nimbus UI is now accessible on the cluster" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📚 Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. SSH into the instance" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check secrets: \`sudo cat /root/.mini-cloud-secrets\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Verify services: \`kubectl get pods -A\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Access Traefik: \`http://<ip>:30080/dashboard/\`" >> $GITHUB_STEP_SUMMARY

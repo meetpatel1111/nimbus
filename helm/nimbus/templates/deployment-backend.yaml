@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nimbus-backend }
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector: { matchLabels: { app: nimbus-backend } }
+  template:
+    metadata: { labels: { app: nimbus-backend } }
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image }}"
+          ports: [{ containerPort: 4000 }]

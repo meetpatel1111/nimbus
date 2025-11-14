@@ -1,0 +1,10 @@
+{
+  "frontend": {
+    "image": "REPLACE_ME",
+    "replicaCount": 1
+  },
+  "backend": {
+    "image": "REPLACE_ME",
+    "replicaCount": 1
+  }
+}

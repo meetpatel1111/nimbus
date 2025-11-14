@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nimbus-backend
+    ports:
+      - "4000:4000"
+    volumes:
+      - /etc/rancher/k3s/k3s.yaml:/root/.kube/config:ro
+      - ./backend:/app
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+    restart: unless-stopped
+    networks:
+      - nimbus-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nimbus-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - nimbus-network
+
+networks:
+  nimbus-network:
+    driver: bridge
