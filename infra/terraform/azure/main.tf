@@ -5,6 +5,14 @@ terraform {
       version = "~> 3.0"
     }
   }
+
+  # Remote state backend - uncomment and configure after creating storage account
+  # backend "azurerm" {
+  #   resource_group_name  = "nimbus-terraform-state-rg"
+  #   storage_account_name = "nimbusterraformstate"
+  #   container_name       = "tfstate"
+  #   key                  = "azure/terraform.tfstate"
+  # }
 }
 
 provider "azurerm" {

@@ -5,6 +5,15 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # Remote state backend - uncomment and configure after creating S3 bucket
+  # backend "s3" {
+  #   bucket         = "nimbus-terraform-state"
+  #   key            = "aws/terraform.tfstate"
+  #   region         = "us-east-1"
+  #   encrypt        = true
+  #   dynamodb_table = "nimbus-terraform-locks"
+  # }
 }
 
 provider "aws" {
