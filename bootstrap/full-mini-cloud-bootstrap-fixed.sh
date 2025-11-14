@@ -48,7 +48,7 @@ done
 
 echo "Apt locks released, proceeding with installation..."
 apt-get update -y
-apt-get install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release jq socat
+apt-get install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release jq
 
 # generate secrets if not provided
 MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-"minio$(rand | tr '[:upper:]' '[:lower:]' | cut -c1-8)"}
