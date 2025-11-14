@@ -36,6 +36,17 @@ fi
 
 echo "STEP 0: prepare system"
 export DEBIAN_FRONTEND=noninteractive
+
+# Wait for apt locks to be released (common on new EC2 instances)
+echo "Waiting for apt locks to be released..."
+while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+      sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+      sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+  echo "Waiting for other apt processes to finish..."
+  sleep 5
+done
+
+echo "Apt locks released, proceeding with installation..."
 apt-get update -y
 apt-get install -y curl wget git apt-transport-https ca-certificates gnupg lsb-release jq socat
 
