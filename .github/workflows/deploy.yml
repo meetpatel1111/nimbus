@@ -370,7 +370,7 @@ jobs:
       - name: Setup kubectl
         uses: azure/setup-kubectl@v4
         with:
-          version: '1.28.0'
+          version: 'v1.28.3'
 
       - name: Setup Helm
         uses: azure/setup-helm@v3
