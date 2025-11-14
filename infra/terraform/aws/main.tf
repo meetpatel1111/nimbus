@@ -26,9 +26,10 @@ variable "instance_type" {
   default = "t2.xlarge"  # 4 vCPU, 16 GB RAM - needed for 21 services
 }
 
-variable "ssh_public_key" {
+variable "key_pair_name" {
   type        = string
-  description = "SSH public key for instance access"
+  description = "Name of existing AWS key pair"
+  default     = "nimbus"
 }
 
 data "aws_ami" "ubuntu" {
@@ -93,21 +94,11 @@ resource "aws_security_group" "nimbus" {
   }
 }
 
-# Create SSH key pair for instance access
-resource "aws_key_pair" "nimbus" {
-  key_name   = "${var.instance_name}-key"
-  public_key = var.ssh_public_key
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
 resource "aws_instance" "nimbus" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = var.instance_type
   vpc_security_group_ids = [aws_security_group.nimbus.id]
-  key_name               = aws_key_pair.nimbus.key_name
+  key_name               = var.key_pair_name
   
   root_block_device {
     volume_size = 100  # 100 GB for all services
