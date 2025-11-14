@@ -13,7 +13,7 @@ on:
           - none
           - aws
           - azure
-        default: 'none'
+        default: aws
       instance_name:
         description: 'Instance/VM Name'
         required: false
