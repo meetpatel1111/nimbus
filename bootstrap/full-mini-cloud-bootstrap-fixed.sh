@@ -18,7 +18,7 @@ GITEA_ADMIN_PASS=""
 OPENFAAS_PASSWORD=""
 DRONE_RPC_SECRET=""
 REGION="${REGION:-local}"         # used by Velero local/demo config; override by exporting REGION before running
-HELM_WAIT_TIMEOUT="240s"
+HELM_WAIT_TIMEOUT="600s"  # Increased to 10 minutes for resource-constrained instances
 # persistence scale tiers will be set automatically based on disk size
 ### ------------------------------------------------
 
