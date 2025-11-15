@@ -7,7 +7,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "nimbus-terraform-state-bucket"
+    bucket         = "nimbus-tfstate-meetpatel1111"
     key            = "aws/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
