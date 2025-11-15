@@ -169,10 +169,13 @@ jobs:
       - name: Create S3 backend if not exists
         continue-on-error: true
         run: |
-          # Create S3 bucket for state
+          # Delete bucket if it exists in wrong region
+          aws s3 rb s3://nimbus-terraform-state-bucket --force 2>/dev/null || true
+          
+          # Create S3 bucket for state in us-east-1
           aws s3api create-bucket \
             --bucket nimbus-terraform-state-bucket \
-            --region us-east-1 || echo "Bucket already exists"
+            --region us-east-1 || echo "Bucket creation skipped"
           
           # Enable versioning
           aws s3api put-bucket-versioning \
