@@ -155,7 +155,7 @@ helm upgrade --install traefik traefik/traefik   --namespace ingress   --set das
 
 echo "STEP 5: Install MinIO (S3-compatible)"
 cleanup_helm_release "minio" "storage"
-helm upgrade --install minio minio/minio --namespace storage   --set accessKey=${MINIO_ACCESS_KEY}   --set secretKey=${MINIO_SECRET_KEY}   --set persistence.size=${MINIO_SIZE}   --set resources.requests.memory="512Mi"   --set resources.requests.cpu="300m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+helm upgrade --install minio minio/minio --namespace storage   --set mode=standalone   --set replicas=1   --set accessKey=${MINIO_ACCESS_KEY}   --set secretKey=${MINIO_SECRET_KEY}   --set persistence.size=${MINIO_SIZE}   --set resources.requests.memory="512Mi"   --set resources.requests.cpu="300m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
 echo "STEP 6: Keycloak (identity) + Postgres"
 cleanup_helm_release "keycloak" "platform"
