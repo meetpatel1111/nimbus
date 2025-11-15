@@ -173,7 +173,7 @@ resource "azurerm_linux_virtual_machine" "vm" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Premium_LRS"
-    disk_size_gb         = 100  # 100 GB for all services
+    disk_size_gb         = 500  # 500 GB for all services
   }
 
   source_image_reference {
