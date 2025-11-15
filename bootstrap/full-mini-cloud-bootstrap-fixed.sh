@@ -167,67 +167,57 @@ echo "STEP 5: Install MinIO (S3-compatible)"
 cleanup_helm_release "minio" "storage"
 helm upgrade --install minio minio/minio --namespace storage   --set mode=standalone   --set replicas=1   --set accessKey=${MINIO_ACCESS_KEY}   --set secretKey=${MINIO_SECRET_KEY}   --set persistence.size=${MINIO_SIZE}   --set resources.requests.memory="512Mi"   --set resources.requests.cpu="300m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-echo "STEP 6: Install Prometheus + Grafana (Observability)"
+echo "STEP 6: Keycloak (identity) + Postgres"
+cleanup_helm_release "keycloak" "platform"
+helm upgrade --install keycloak codecentric/keycloak --namespace platform   --set replicaCount=1   --set postgresql.enabled=true   --set keycloak.persistence.size=${KEYCLOAK_PV}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+
+echo "STEP 7: Vault (dev-mode for bootstrap; change for prod)"
+helm upgrade --install vault hashicorp/vault --namespace platform   --set "server.dev.enabled=true"   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+echo "NOTE: Vault is running in dev-mode for bootstrap. Do NOT use dev-mode in production."
+
+echo "STEP 8: Messaging (NATS + RabbitMQ)"
+helm upgrade --install nats nats/nats --namespace apps --set replicaCount=1 --set resources.requests.memory="64Mi" --set resources.requests.cpu="50m" --wait --timeout=${HELM_WAIT_TIMEOUT}
+helm upgrade --install rabbitmq bitnami/rabbitmq --namespace apps   --set replicaCount=1   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --set auth.username=admin   --set auth.password=adminpassword   --wait --timeout=${HELM_WAIT_TIMEOUT}
+
+echo "STEP 9: Observability (Prometheus + Grafana + Loki)"
 helm upgrade --install kube-prometheus prometheus-community/kube-prometheus-stack --namespace monitoring   --set prometheus.prometheusSpec.replicas=1   --set prometheus.prometheusSpec.resources.requests.memory="256Mi"   --set prometheus.prometheusSpec.resources.requests.cpu="200m"   --set alertmanager.alertmanagerSpec.replicas=1   --set grafana.enabled=true   --set grafana.replicas=1   --set grafana.resources.requests.memory="256Mi"   --set grafana.resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-echo "=========================================="
-echo "INITIAL BOOTSTRAP COMPLETE!"
-echo "=========================================="
-echo "Installed services:"
-echo "  1. K3s (Kubernetes)"
-echo "  2. Longhorn (Storage)"
-echo "  3. Traefik (Ingress)"
-echo "  4. MinIO (S3 Storage)"
-echo "  5. Prometheus + Grafana (Monitoring)"
-echo ""
-echo "To install additional services, uncomment them in the script."
-echo "=========================================="
+helm upgrade --install loki grafana/loki-stack --namespace monitoring   --set loki.replicas=1   --set promtail.enabled=true   --set promtail.resources.requests.memory="64Mi"   --set promtail.resources.requests.cpu="50m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-# OPTIONAL SERVICES - Uncomment to install
-# echo "STEP 7: Keycloak (identity) + Postgres"
-# cleanup_helm_release "keycloak" "platform"
-# helm upgrade --install keycloak codecentric/keycloak --namespace platform   --set replicaCount=1   --set postgresql.enabled=true   --set keycloak.persistence.size=${KEYCLOAK_PV}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+echo "STEP 10: OpenFaaS (serverless)"
+helm upgrade --install openfaas openfaas/openfaas --namespace openfaas   --set functionNamespace=openfaas-fn   --set basicAuth=true   --set gateway.replicas=1   --set ingress.enabled=false   --set faasnetes.imagePullPolicy=IfNotPresent   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-# echo "STEP 8: Vault (dev-mode for bootstrap; change for prod)"
-# helm upgrade --install vault hashicorp/vault --namespace platform   --set "server.dev.enabled=true"   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
-# echo "NOTE: Vault is running in dev-mode for bootstrap. Do NOT use dev-mode in production."
+# create basic-auth secret for OpenFaaS (change in prod)
+kubectl -n openfaas create secret generic basic-auth   --from-literal=basic-auth-user=admin   --from-literal=basic-auth-password="${OPENFAAS_PASSWORD}" || true
 
-# echo "STEP 9: Messaging (NATS + RabbitMQ)"
-# helm upgrade --install nats nats/nats --namespace apps --set replicaCount=1 --set resources.requests.memory="64Mi" --set resources.requests.cpu="50m" --wait --timeout=${HELM_WAIT_TIMEOUT}
-# helm upgrade --install rabbitmq bitnami/rabbitmq --namespace apps   --set replicaCount=1   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --set auth.username=admin   --set auth.password=adminpassword   --wait --timeout=${HELM_WAIT_TIMEOUT}
+echo "STEP 11: n8n (workflow automation)"
+helm upgrade --install n8n n8n/n8n --namespace workflows   --set persistence.enabled=true   --set persistence.size=${POSTGRES_SIZE}   --set replicaCount=1   --set postgresql.enabled=true   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-# echo "STEP 10: Loki (Log aggregation)"
-# helm upgrade --install loki grafana/loki-stack --namespace monitoring   --set loki.replicas=1   --set promtail.enabled=true   --set promtail.resources.requests.memory="64Mi"   --set promtail.resources.requests.cpu="50m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+echo "STEP 12: Gitea + Drone (Git + CI)"
+helm upgrade --install gitea gitea-charts/gitea --namespace ci   --set replicaCount=1   --set persistence.size=${GITEA_SIZE}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --set admin.user=${GITEA_ADMIN_USER}   --set admin.password=${GITEA_ADMIN_PASS}   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-# echo "STEP 11: OpenFaaS (serverless)"
-# helm upgrade --install openfaas openfaas/openfaas --namespace openfaas   --set functionNamespace=openfaas-fn   --set basicAuth=true   --set gateway.replicas=1   --set ingress.enabled=false   --set faasnetes.imagePullPolicy=IfNotPresent   --wait --timeout=${HELM_WAIT_TIMEOUT}
-# kubectl -n openfaas create secret generic basic-auth   --from-literal=basic-auth-user=admin   --from-literal=basic-auth-password="${OPENFAAS_PASSWORD}" || true
+helm upgrade --install drone drone/drone --namespace ci   --set replicaCount=1   --set env.DRONE_GITEA_SERVER=http://gitea.ci.svc.cluster.local   --set env.DRONE_RPC_SECRET=${DRONE_RPC_SECRET}   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
-# echo "STEP 12: n8n (workflow automation)"
-# helm upgrade --install n8n n8n/n8n --namespace workflows   --set persistence.enabled=true   --set persistence.size=${POSTGRES_SIZE}   --set replicaCount=1   --set postgresql.enabled=true   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+echo "STEP 13: Velero (backup) - local demo configuration"
+mkdir -p "${BACKUP_LOCAL_DIR}"
+kubectl create namespace velero --dry-run=client -o yaml | kubectl apply -f -
+# For a simple local demo, Velero can be configured with a hostPath via a custom BackupStorageLocation
+# Production: configure S3 / Azure blob / or remote backend and credentials.
+helm upgrade --install velero vmware-tanzu/velero --namespace velero   --set configuration.provider=aws   --set configuration.backupStorageLocation.name=local   --set configuration.backupStorageLocation.bucket=velero-local   --set configuration.backupStorageLocation.config.region=${REGION}   --wait --timeout=${HELM_WAIT_TIMEOUT} || true
 
-# echo "STEP 13: Gitea + Drone (Git + CI)"
-# helm upgrade --install gitea gitea-charts/gitea --namespace ci   --set replicaCount=1   --set persistence.size=${GITEA_SIZE}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --set admin.user=${GITEA_ADMIN_USER}   --set admin.password=${GITEA_ADMIN_PASS}   --wait --timeout=${HELM_WAIT_TIMEOUT}
-# helm upgrade --install drone drone/drone --namespace ci   --set replicaCount=1   --set env.DRONE_GITEA_SERVER=http://gitea.ci.svc.cluster.local   --set env.DRONE_RPC_SECRET=${DRONE_RPC_SECRET}   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
-
-# echo "STEP 14: Velero (backup) - local demo configuration"
-# mkdir -p "${BACKUP_LOCAL_DIR}"
-# kubectl create namespace velero --dry-run=client -o yaml | kubectl apply -f -
-# helm upgrade --install velero vmware-tanzu/velero --namespace velero   --set configuration.provider=aws   --set configuration.backupStorageLocation.name=local   --set configuration.backupStorageLocation.bucket=velero-local   --set configuration.backupStorageLocation.config.region=${REGION}   --wait --timeout=${HELM_WAIT_TIMEOUT} || true
-
-# echo "STEP 15: Sample demo app (nginx) to verify cluster"
-# kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -
-# kubectl -n demo apply -f - <<'EOF'
-# apiVersion: apps/v1
-# kind: Deployment
-# metadata:
-#   name: hello-nginx
-# spec:
-#   replicas: 1
-#   selector:
-#     matchLabels:
-#       app: hello-nginx
-#   template:
+echo "STEP 14: Sample demo app (nginx) to verify cluster"
+kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n demo apply -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-nginx
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello-nginx
+  template:
     metadata:
       labels:
         app: hello-nginx
