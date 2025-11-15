@@ -169,7 +169,7 @@ helm upgrade --install minio minio/minio --namespace storage   --set mode=standa
 
 echo "STEP 6: Keycloak (identity) + Postgres"
 cleanup_helm_release "keycloak" "platform"
-helm upgrade --install keycloak codecentric/keycloak --namespace platform   --set replicaCount=1   --set postgresql.enabled=true   --set keycloak.persistence.size=${KEYCLOAK_PV}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
+helm upgrade --install keycloak codecentric/keycloak --namespace platform   --set replicaCount=1   --set postgresql.enabled=true   --set keycloak.persistence.size=${KEYCLOAK_PV}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Keycloak installation failed, continuing..."
 
 echo "STEP 7: Vault (dev-mode for bootstrap; change for prod)"
 helm upgrade --install vault hashicorp/vault --namespace platform   --set "server.dev.enabled=true"   --set resources.requests.memory="128Mi"   --set resources.requests.cpu="100m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
