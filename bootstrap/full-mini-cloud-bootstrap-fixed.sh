@@ -25,6 +25,23 @@ HELM_WAIT_TIMEOUT="600s"  # Increased to 10 minutes for resource-constrained ins
 # helper: random secret
 rand() { head -c 48 /dev/urandom | base64 | tr -d '/+=' | cut -c1-24; }
 
+# helper: cleanup stuck helm releases
+cleanup_helm_release() {
+  local release=$1
+  local namespace=$2
+  echo "Checking for stuck Helm release: $release in namespace $namespace"
+  
+  # Check if release exists and is in pending state
+  if helm list -n "$namespace" | grep -q "$release"; then
+    local status=$(helm status "$release" -n "$namespace" -o json 2>/dev/null | jq -r '.info.status' || echo "unknown")
+    if [ "$status" = "pending-install" ] || [ "$status" = "pending-upgrade" ]; then
+      echo "Found stuck release $release with status $status, cleaning up..."
+      helm rollback "$release" -n "$namespace" 2>/dev/null || helm uninstall "$release" -n "$namespace" --wait 2>/dev/null || true
+      sleep 5
+    fi
+  fi
+}
+
 # Trap to print helpful message on failure
 trap 'echo "ERROR: script failed at line $LINENO. Check logs above." >&2' ERR
 
@@ -137,9 +154,11 @@ echo "STEP 4: Install Traefik via Helm (NodePort for simplicity)"
 helm upgrade --install traefik traefik/traefik   --namespace ingress   --set dashboard.enabled=true   --set service.type=NodePort   --set ports.web.nodePort=30080   --set ports.websecure.nodePort=30443   --set rbac.enabled=true   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
 echo "STEP 5: Install MinIO (S3-compatible)"
+cleanup_helm_release "minio" "storage"
 helm upgrade --install minio minio/minio --namespace storage   --set accessKey=${MINIO_ACCESS_KEY}   --set secretKey=${MINIO_SECRET_KEY}   --set persistence.size=${MINIO_SIZE}   --set resources.requests.memory="512Mi"   --set resources.requests.cpu="300m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
 echo "STEP 6: Keycloak (identity) + Postgres"
+cleanup_helm_release "keycloak" "platform"
 helm upgrade --install keycloak codecentric/keycloak --namespace platform   --set replicaCount=1   --set postgresql.enabled=true   --set keycloak.persistence.size=${KEYCLOAK_PV}   --set resources.requests.memory="256Mi"   --set resources.requests.cpu="200m"   --wait --timeout=${HELM_WAIT_TIMEOUT}
 
 echo "STEP 7: Vault (dev-mode for bootstrap; change for prod)"
