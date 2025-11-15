@@ -31,14 +31,24 @@ cleanup_helm_release() {
   local namespace=$2
   echo "Checking for stuck Helm release: $release in namespace $namespace"
   
-  # Check if release exists and is in pending state
-  if helm list -n "$namespace" | grep -q "$release"; then
-    local status=$(helm status "$release" -n "$namespace" -o json 2>/dev/null | jq -r '.info.status' || echo "unknown")
-    if [ "$status" = "pending-install" ] || [ "$status" = "pending-upgrade" ]; then
-      echo "Found stuck release $release with status $status, cleaning up..."
-      helm rollback "$release" -n "$namespace" 2>/dev/null || helm uninstall "$release" -n "$namespace" --wait 2>/dev/null || true
-      sleep 5
-    fi
+  # Check if release exists
+  if helm list -n "$namespace" 2>/dev/null | grep -q "$release"; then
+    echo "Found existing release $release, attempting cleanup..."
+    
+    # Force delete any pending operations by deleting the secret
+    kubectl delete secret -n "$namespace" -l owner=helm,name="$release",status=pending-upgrade 2>/dev/null || true
+    kubectl delete secret -n "$namespace" -l owner=helm,name="$release",status=pending-install 2>/dev/null || true
+    
+    # Try to uninstall
+    helm uninstall "$release" -n "$namespace" --wait --timeout=60s 2>/dev/null || true
+    
+    # Force delete any remaining resources
+    kubectl delete statefulset -n "$namespace" "$release" --force --grace-period=0 2>/dev/null || true
+    kubectl delete deployment -n "$namespace" "$release" --force --grace-period=0 2>/dev/null || true
+    kubectl delete pvc -n "$namespace" -l app="$release" 2>/dev/null || true
+    
+    echo "Cleanup complete, waiting 10 seconds..."
+    sleep 10
   fi
 }
 
