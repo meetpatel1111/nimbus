@@ -16,15 +16,20 @@ let vms = [];
 let networks = [];
 let volumes = [];
 
-// All 21 services in the mini-cloud
+// All 31+ services in Nimbus Cloud
 const ALL_SERVICES = [
   // Core Platform (3)
   { id: 'k3s', name: 'k3s', category: 'platform', description: 'Lightweight Kubernetes cluster', namespace: 'kube-system', status: 'running' },
   { id: 'longhorn', name: 'Longhorn', category: 'platform', description: 'Distributed block storage', namespace: 'longhorn-system', status: 'running', endpoint: 'http://localhost:30080/longhorn' },
-  { id: 'traefik', name: 'Traefik', category: 'platform', description: 'Ingress controller & load balancer', namespace: 'ingress', status: 'running', endpoint: 'http://localhost:30080/dashboard/' },
+  { id: 'traefik', name: 'Traefik', category: 'ingress', description: 'Ingress controller & load balancer', namespace: 'ingress', status: 'running', endpoint: 'http://localhost:30080/dashboard/' },
   
   // Storage (1)
   { id: 'minio', name: 'MinIO', category: 'storage', description: 'S3-compatible object storage', namespace: 'storage', status: 'running', endpoint: 'http://localhost:9000' },
+  
+  // Databases (3)
+  { id: 'redis', name: 'Redis', category: 'databases', description: 'In-memory cache & data store', namespace: 'apps', status: 'running' },
+  { id: 'postgresql', name: 'PostgreSQL', category: 'databases', description: 'Relational database', namespace: 'apps', status: 'running' },
+  { id: 'mongodb', name: 'MongoDB', category: 'databases', description: 'NoSQL document database', namespace: 'apps', status: 'running' },
   
   // Serverless (1)
   { id: 'openfaas', name: 'OpenFaaS', category: 'serverless', description: 'Serverless functions-as-a-service', namespace: 'openfaas', status: 'running', endpoint: 'http://localhost:8080' },
@@ -32,31 +37,48 @@ const ALL_SERVICES = [
   // Workflow (1)
   { id: 'n8n', name: 'n8n', category: 'workflow', description: 'Workflow automation platform', namespace: 'workflows', status: 'running', endpoint: 'http://localhost:5678' },
   
-  // Security (2)
-  { id: 'keycloak', name: 'Keycloak', category: 'security', description: 'Identity provider (SSO, RBAC, OAuth2)', namespace: 'platform', status: 'running', endpoint: 'http://localhost:8180' },
+  // Security (3)
   { id: 'vault', name: 'Vault', category: 'security', description: 'Secret management', namespace: 'platform', status: 'running', endpoint: 'http://localhost:8200' },
+  { id: 'cert-manager', name: 'Cert-Manager', category: 'security', description: 'SSL certificate automation', namespace: 'cert-manager', status: 'running' },
+  { id: 'kyverno', name: 'Kyverno', category: 'security', description: 'Kubernetes policy engine', namespace: 'kyverno', status: 'running' },
   
-  // Messaging (2)
+  // Messaging & Streaming (3)
   { id: 'nats', name: 'NATS', category: 'messaging', description: 'High-speed message broker', namespace: 'apps', status: 'running' },
   { id: 'rabbitmq', name: 'RabbitMQ', category: 'messaging', description: 'Queueing system (AMQP)', namespace: 'apps', status: 'running', endpoint: 'http://localhost:15672' },
+  { id: 'kafka', name: 'Apache Kafka', category: 'messaging', description: 'Event streaming platform', namespace: 'apps', status: 'running' },
   
-  // Observability (3)
+  // Observability (6)
   { id: 'prometheus', name: 'Prometheus', category: 'observability', description: 'Metrics collection', namespace: 'monitoring', status: 'running', endpoint: 'http://localhost:9090' },
   { id: 'grafana', name: 'Grafana', category: 'observability', description: 'Dashboards & visualization', namespace: 'monitoring', status: 'running', endpoint: 'http://localhost:3000' },
   { id: 'loki', name: 'Loki + Promtail', category: 'observability', description: 'Logs collection & query', namespace: 'monitoring', status: 'running' },
+  { id: 'jaeger', name: 'Jaeger', category: 'observability', description: 'Distributed tracing', namespace: 'observability', status: 'running', endpoint: 'http://localhost:16686' },
+  { id: 'kube-state-metrics', name: 'Kube-State-Metrics', category: 'observability', description: 'Kubernetes cluster metrics', namespace: 'monitoring', status: 'running' },
+  { id: 'metrics-server', name: 'Metrics Server', category: 'observability', description: 'Resource metrics API', namespace: 'kube-system', status: 'running' },
+  
+  // CI/CD & GitOps (4)
+  { id: 'gitea', name: 'Gitea', category: 'cicd', description: 'Git hosting platform', namespace: 'ci', status: 'running', endpoint: 'http://localhost:3001' },
+  { id: 'drone', name: 'Drone CI', category: 'cicd', description: 'CI/CD pipeline runner', namespace: 'ci', status: 'running', endpoint: 'http://localhost:8081' },
+  { id: 'jenkins', name: 'Jenkins', category: 'cicd', description: 'Automation server', namespace: 'ci', status: 'running', endpoint: 'http://localhost:8082' },
+  { id: 'argocd', name: 'ArgoCD', category: 'cicd', description: 'GitOps continuous delivery', namespace: 'argocd', status: 'running', endpoint: 'http://localhost:8083' },
+  
+  // Container Registry (1)
+  { id: 'harbor', name: 'Harbor', category: 'registry', description: 'Container image registry', namespace: 'apps', status: 'running', endpoint: 'http://localhost:30002' },
+  
+  // Service Mesh (2)
+  { id: 'istio-base', name: 'Istio Base', category: 'servicemesh', description: 'Service mesh foundation', namespace: 'istio-system', status: 'running' },
+  { id: 'istiod', name: 'Istiod', category: 'servicemesh', description: 'Service mesh control plane', namespace: 'istio-system', status: 'running' },
+  
+  // Ingress Controllers (2)
+  { id: 'ingress-nginx', name: 'Nginx Ingress', category: 'ingress', description: 'Alternative ingress controller', namespace: 'ingress-nginx', status: 'running' },
+  
+  // Search & Analytics (1)
+  { id: 'elasticsearch', name: 'Elasticsearch', category: 'analytics', description: 'Search & analytics engine', namespace: 'apps', status: 'running', endpoint: 'http://localhost:9200' },
   
   // Backup (1)
   { id: 'velero', name: 'Velero', category: 'backup', description: 'Backup/restore for Kubernetes', namespace: 'velero', status: 'running' },
   
-  // DevTools (2)
-  { id: 'gitea', name: 'Gitea', category: 'devtools', description: 'Git hosting platform', namespace: 'ci', status: 'running', endpoint: 'http://localhost:3001' },
-  { id: 'drone', name: 'Drone CI', category: 'devtools', description: 'CI/CD pipeline runner', namespace: 'ci', status: 'running', endpoint: 'http://localhost:8081' },
-  
   // UI (1)
   { id: 'nimbus-ui', name: 'Nimbus UI', category: 'platform', description: 'Web dashboard for cloud management', namespace: 'default', status: 'running', endpoint: 'http://localhost:4000' },
-  
-  // Demo (1)
-  { id: 'nginx-demo', name: 'Nginx Demo', category: 'platform', description: 'Demo app to confirm cluster', namespace: 'demo', status: 'running' },
 ];
 
 // Dashboard stats

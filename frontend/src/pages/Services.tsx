@@ -14,13 +14,18 @@ interface Service {
 const SERVICE_CATEGORIES = [
   { id: 'platform', name: 'Core Platform', icon: '🔧' },
   { id: 'storage', name: 'Storage Services', icon: '🗄️' },
+  { id: 'databases', name: 'Databases', icon: '🗃️' },
   { id: 'serverless', name: 'Serverless & Compute', icon: '⚙️' },
   { id: 'workflow', name: 'Workflow Automation', icon: '🔄' },
-  { id: 'security', name: 'Identity & Security', icon: '🔐' },
-  { id: 'messaging', name: 'Messaging & Eventing', icon: '📬' },
+  { id: 'security', name: 'Security & Policy', icon: '🔐' },
+  { id: 'messaging', name: 'Messaging & Streaming', icon: '📬' },
   { id: 'observability', name: 'Monitoring & Observability', icon: '📊' },
+  { id: 'cicd', name: 'CI/CD & GitOps', icon: '🚀' },
+  { id: 'registry', name: 'Container Registry', icon: '📦' },
+  { id: 'servicemesh', name: 'Service Mesh', icon: '🕸️' },
+  { id: 'ingress', name: 'Ingress Controllers', icon: '🌐' },
+  { id: 'analytics', name: 'Search & Analytics', icon: '🔍' },
   { id: 'backup', name: 'Backup & DR', icon: '💾' },
-  { id: 'devtools', name: 'Development Tools', icon: '🧑‍💻' },
 ];
 
 export default function Services() {
@@ -62,8 +67,8 @@ export default function Services() {
   return (
     <div className="container">
       <div className="page-header">
-        <h1>🌥 Mini-Cloud Services</h1>
-        <p>Manage all 21 services running in your cloud platform</p>
+        <h1>🌥 Nimbus Cloud Services</h1>
+        <p>Manage 31+ enterprise-grade services running in your cloud platform</p>
       </div>
 
       <div className="stats-grid">
