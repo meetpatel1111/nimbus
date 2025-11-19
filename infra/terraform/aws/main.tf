@@ -99,7 +99,15 @@ resource "aws_security_group" "nimbus" {
     to_port     = 30400
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "Nimbus Cloud UI"
+    description = "Nimbus Backend API"
+  }
+
+  ingress {
+    from_port   = 30401
+    to_port     = 30401
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Nimbus Frontend UI"
   }
 
   ingress {

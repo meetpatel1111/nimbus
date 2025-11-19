@@ -137,13 +137,25 @@ resource "azurerm_network_security_group" "nsg" {
   }
 
   security_rule {
-    name                       = "NimbusUI"
+    name                       = "NimbusBackend"
     priority                   = 1006
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
     source_port_range          = "*"
     destination_port_range     = "30400"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  security_rule {
+    name                       = "NimbusFrontend"
+    priority                   = 1009
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "30401"
     source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
