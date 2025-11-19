@@ -1,6 +1,14 @@
 apiVersion: v1
 kind: Service
-metadata: { name: nimbus-frontend }
+metadata: 
+  name: nimbus-backend
 spec:
-  selector: { app: nimbus-frontend }
-  ports: [{ port: 80, targetPort: 80 }]
+  type: NodePort
+  selector: 
+    app: nimbus-backend
+  ports:
+    - name: http
+      port: 4000
+      targetPort: 4000
+      nodePort: 30400
+      protocol: TCP
