@@ -207,7 +207,66 @@ kubectl create namespace velero --dry-run=client -o yaml | kubectl apply -f -
 # Production: configure S3 / Azure blob / or remote backend and credentials.
 helm upgrade --install velero vmware-tanzu/velero --namespace velero   --set configuration.provider=aws   --set configuration.backupStorageLocation.name=local   --set configuration.backupStorageLocation.bucket=velero-local   --set configuration.backupStorageLocation.config.region=${REGION}   --wait --timeout=${HELM_WAIT_TIMEOUT} || true
 
-echo "STEP 14: Sample demo app (nginx) to verify cluster"
+echo "STEP 14: Redis (In-memory cache)"
+helm upgrade --install redis bitnami/redis --namespace apps \
+  --set architecture=standalone \
+  --set auth.enabled=true \
+  --set auth.password=redispassword \
+  --set master.resources.requests.memory="128Mi" \
+  --set master.resources.requests.cpu="100m" \
+  --set master.persistence.size=2Gi \
+  --wait --timeout=${HELM_WAIT_TIMEOUT}
+
+echo "STEP 15: PostgreSQL (Database)"
+helm upgrade --install postgresql bitnami/postgresql --namespace apps \
+  --set auth.username=postgres \
+  --set auth.password=postgrespassword \
+  --set auth.database=mydb \
+  --set primary.resources.requests.memory="256Mi" \
+  --set primary.resources.requests.cpu="200m" \
+  --set primary.persistence.size=5Gi \
+  --wait --timeout=${HELM_WAIT_TIMEOUT}
+
+echo "STEP 16: MongoDB (NoSQL Database)"
+helm upgrade --install mongodb bitnami/mongodb --namespace apps \
+  --set architecture=standalone \
+  --set auth.rootPassword=mongopassword \
+  --set resources.requests.memory="256Mi" \
+  --set resources.requests.cpu="200m" \
+  --set persistence.size=5Gi \
+  --wait --timeout=${HELM_WAIT_TIMEOUT}
+
+echo "STEP 17: Elasticsearch (Search & Analytics)"
+helm upgrade --install elasticsearch bitnami/elasticsearch --namespace apps \
+  --set master.replicaCount=1 \
+  --set data.replicaCount=1 \
+  --set coordinating.replicaCount=1 \
+  --set ingest.replicaCount=1 \
+  --set master.resources.requests.memory="512Mi" \
+  --set master.resources.requests.cpu="300m" \
+  --set master.persistence.size=5Gi \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Elasticsearch installation failed, continuing..."
+
+echo "STEP 18: Kafka (Event Streaming)"
+helm upgrade --install kafka bitnami/kafka --namespace apps \
+  --set replicaCount=1 \
+  --set resources.requests.memory="512Mi" \
+  --set resources.requests.cpu="300m" \
+  --set persistence.size=5Gi \
+  --set zookeeper.enabled=true \
+  --set zookeeper.replicaCount=1 \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Kafka installation failed, continuing..."
+
+echo "STEP 19: Jenkins (CI/CD)"
+helm upgrade --install jenkins bitnami/jenkins --namespace ci \
+  --set jenkinsUser=admin \
+  --set jenkinsPassword=adminpassword \
+  --set resources.requests.memory="512Mi" \
+  --set resources.requests.cpu="300m" \
+  --set persistence.size=5Gi \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Jenkins installation failed, continuing..."
+
+echo "STEP 20: Sample demo app (nginx) to verify cluster"
 kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n demo apply -f - <<'EOF'
 apiVersion: apps/v1
