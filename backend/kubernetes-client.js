@@ -314,6 +314,43 @@ async function getService(namespace, name) {
   }
 }
 
+/**
+ * Get all namespaces
+ */
+async function getNamespaces() {
+  try {
+    const { stdout } = await execAsync('kubectl get namespaces -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting namespaces:', error);
+    return null;
+  }
+}
+
+/**
+ * Create a namespace
+ */
+async function createNamespace(name) {
+  try {
+    const { stdout } = await execAsync(`kubectl create namespace ${name}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Delete a namespace
+ */
+async function deleteNamespace(name) {
+  try {
+    const { stdout } = await execAsync(`kubectl delete namespace ${name}`);
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
 module.exports = {
   checkClusterConnection,
   getAllPods,
@@ -332,5 +369,8 @@ module.exports = {
   uninstallHelmChart,
   getNodes,
   getNodeMetrics,
-  getService
+  getService,
+  getNamespaces,
+  createNamespace,
+  deleteNamespace
 };

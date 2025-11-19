@@ -1074,32 +1074,115 @@ app.post('/api/resources/:id/:action', async (req, res) => {
   }
 });
 
-// Networks endpoints
-app.get('/api/networks', (req, res) => {
-  res.json(networks);
+// Networks endpoints - Query from Kubernetes NetworkPolicies
+app.get('/api/networks', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Get all namespaces as "networks" (each namespace is isolated)
+    const namespaces = await k8s.getNamespaces();
+    
+    if (!namespaces || !namespaces.items) {
+      return res.json([]);
+    }
+    
+    // Convert namespaces to network format
+    const networks = namespaces.items
+      .filter(ns => !['kube-system', 'kube-public', 'kube-node-lease'].includes(ns.metadata.name))
+      .map(ns => {
+        const name = ns.metadata.name;
+        // Generate CIDR based on namespace (for display purposes)
+        const hash = name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const subnet = (hash % 250) + 1;
+        const cidr = `10.${subnet}.0.0/24`;
+        const gateway = `10.${subnet}.0.1`;
+        
+        return {
+          id: ns.metadata.uid,
+          name: name,
+          cidr: cidr,
+          gateway: gateway,
+          type: 'internal',
+          status: ns.status.phase === 'Active' ? 'active' : 'inactive',
+          connectedVMs: 0, // Could count pods in namespace
+          createdAt: ns.metadata.creationTimestamp
+        };
+      });
+    
+    res.json(networks);
+  } catch (error) {
+    console.error('Error fetching networks from K8s:', error);
+    res.json([]);
+  }
 });
 
-app.post('/api/networks', (req, res) => {
+app.post('/api/networks', async (req, res) => {
   const { name, cidr, type } = req.body;
-  const parts = cidr.split('.');
-  const gateway = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
   
-  const network = {
-    id: `net-${Date.now()}`,
-    name,
-    cidr,
-    gateway,
-    type,
-    status: 'active',
-    connectedVMs: 0
-  };
-  networks.push(network);
-  res.json(network);
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
+    
+    // Create a new namespace as a "network"
+    const result = await k8s.createNamespace(name);
+    
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+    
+    const parts = cidr.split('.');
+    const gateway = `${parts[0]}.${parts[1]}.${parts[2]}.1`;
+    
+    console.log(`✅ Created network (namespace): ${name}`);
+    
+    res.json({
+      id: `net-${Date.now()}`,
+      name,
+      cidr,
+      gateway,
+      type: type || 'internal',
+      status: 'active',
+      connectedVMs: 0
+    });
+  } catch (error) {
+    console.error('Error creating network:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.delete('/api/networks/:id', (req, res) => {
-  networks = networks.filter(n => n.id !== req.params.id);
-  res.json({ ok: true });
+app.delete('/api/networks/:id', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Find namespace by ID
+    const namespaces = await k8s.getNamespaces();
+    const namespace = namespaces?.items?.find(ns => ns.metadata.uid === req.params.id);
+    
+    if (!namespace) {
+      return res.status(404).json({ error: 'Network not found' });
+    }
+    
+    // Don't allow deletion of system namespaces
+    if (['default', 'kube-system', 'kube-public', 'kube-node-lease'].includes(namespace.metadata.name)) {
+      return res.status(403).json({ error: 'Cannot delete system network' });
+    }
+    
+    await k8s.deleteNamespace(namespace.metadata.name);
+    console.log(`✅ Deleted network (namespace): ${namespace.metadata.name}`);
+    
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting network:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Deploy endpoint - provisions cloud infrastructure
