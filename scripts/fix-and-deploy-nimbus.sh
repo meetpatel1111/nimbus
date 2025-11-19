@@ -42,7 +42,7 @@ echo ""
 
 # 3. Create namespace
 echo "3️⃣ Creating nimbus namespace..."
-sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml create namespace nimbus --dry-run=client -o yaml | kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f -
 echo "   ✅ Namespace ready"
 echo ""
 
@@ -68,10 +68,9 @@ FRONTEND_IMAGE="${FRONTEND_IMAGE:-meetpatel1111/nimbus-platform:frontend-latest}
 echo "   🐳 Backend:  $BACKEND_IMAGE"
 echo "   🐳 Frontend: $FRONTEND_IMAGE"
 
-# Set KUBECONFIG for helm to use K3s config
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-
-sudo -E helm upgrade --install nimbus ./helm/nimbus \
+# Use helm with kubeconfig flag
+helm upgrade --install nimbus ./helm/nimbus \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml \
   -n nimbus \
   --set backend.image="$BACKEND_IMAGE" \
   --set frontend.image="$FRONTEND_IMAGE" \
@@ -83,17 +82,17 @@ echo ""
 
 # 6. Wait for pods to be ready
 echo "6️⃣ Waiting for pods to be ready..."
-sudo kubectl wait --for=condition=Ready pods -n nimbus --all --timeout=300s || true
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml wait --for=condition=Ready pods -n nimbus --all --timeout=300s || true
 echo ""
 
 # 7. Show status
 echo "7️⃣ Deployment Status:"
 echo ""
 echo "📦 Pods:"
-sudo kubectl get pods -n nimbus
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -n nimbus
 echo ""
 echo "🌐 Services:"
-sudo kubectl get svc -n nimbus
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get svc -n nimbus
 echo ""
 
 # 8. Get access URLs
