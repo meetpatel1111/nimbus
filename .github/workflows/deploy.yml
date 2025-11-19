@@ -155,12 +155,24 @@ jobs:
     name: Auto-Update Nimbus Deployment
     needs: build-docker-images
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' && secrets.AWS_INSTANCE_IP != '' }}
+    if: github.event_name == 'push'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check if auto-deploy is configured
+        id: check-config
+        run: |
+          if [ -z "${{ secrets.AWS_INSTANCE_IP }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Auto-deploy not configured. Set AWS_INSTANCE_IP secret to enable."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+            echo "✅ Auto-deploy configured for ${{ secrets.AWS_INSTANCE_IP }}"
+          fi
+
       - name: Setup SSH key
+        if: steps.check-config.outputs.configured == 'true'
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
@@ -168,6 +180,7 @@ jobs:
           ssh-keyscan -H ${{ secrets.AWS_INSTANCE_IP }} >> ~/.ssh/known_hosts
 
       - name: Copy updated scripts to instance
+        if: steps.check-config.outputs.configured == 'true'
         run: |
           # Copy Helm chart
           scp -o StrictHostKeyChecking=no -r ./helm/nimbus ubuntu@${{ secrets.AWS_INSTANCE_IP }}:~/
@@ -181,6 +194,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.AWS_INSTANCE_IP }} "chmod +x ~/*.sh"
 
       - name: Auto-deploy latest images
+        if: steps.check-config.outputs.configured == 'true'
         run: |
           ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.AWS_INSTANCE_IP }} << 'ENDSSH'
             echo "🔄 Auto-deploying latest Nimbus images..."
@@ -205,6 +219,7 @@ jobs:
           ENDSSH
 
       - name: Verify deployment
+        if: steps.check-config.outputs.configured == 'true'
         run: |
           echo "Waiting 10 seconds for deployment to stabilize..."
           sleep 10
