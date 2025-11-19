@@ -275,6 +275,45 @@ async function uninstallHelmChart(name, namespace) {
   }
 }
 
+/**
+ * Get all nodes in the cluster
+ */
+async function getNodes() {
+  try {
+    const { stdout } = await execAsync('kubectl get nodes -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting nodes:', error);
+    return null;
+  }
+}
+
+/**
+ * Get node metrics (requires metrics-server)
+ */
+async function getNodeMetrics() {
+  try {
+    const { stdout } = await execAsync('kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting node metrics (metrics-server may not be installed):', error);
+    return null;
+  }
+}
+
+/**
+ * Get a specific service
+ */
+async function getService(namespace, name) {
+  try {
+    const { stdout } = await execAsync(`kubectl get svc ${name} -n ${namespace} -o json`);
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting service:', error);
+    return null;
+  }
+}
+
 module.exports = {
   checkClusterConnection,
   getAllPods,
@@ -290,5 +329,8 @@ module.exports = {
   getDeploymentStatus,
   createPVC,
   installHelmChart,
-  uninstallHelmChart
+  uninstallHelmChart,
+  getNodes,
+  getNodeMetrics,
+  getService
 };

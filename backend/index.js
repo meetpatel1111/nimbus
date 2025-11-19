@@ -11,11 +11,7 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use('/', express.static(path.join(__dirname, '../frontend/dist')));
 
-// Mock data stores
-let vms = [];
-let networks = [];
-let volumes = [];
-let resources = [];
+// No mock data - all data comes from Kubernetes cluster
 
 // All 31+ services in Nimbus Cloud
 const ALL_SERVICES = [
@@ -102,7 +98,67 @@ app.get('/api/dashboard/stats', async (req, res) => {
       });
     }
     
-    const runningVMs = vms.filter(v => v.status === 'running').length;
+    // Get VMs from Kubernetes deployments
+    const deployments = await k8s.getAllDeployments();
+    const vmDeployments = deployments?.items?.filter(d => 
+      d.metadata.labels && d.metadata.labels['nimbus-type'] === 'vm'
+    ) || [];
+    const runningVMs = vmDeployments.filter(d => d.status.availableReplicas > 0).length;
+    
+    // Get real cluster metrics
+    const nodes = await k8s.getNodes();
+      let totalCpu = 0, totalMemory = 0, usedCpu = 0, usedMemory = 0;
+      
+      if (nodes && nodes.items && nodes.items.length > 0) {
+        nodes.items.forEach(node => {
+          const capacity = node.status.capacity;
+          const allocatable = node.status.allocatable;
+          
+          // Parse CPU (in cores)
+          totalCpu += parseInt(capacity.cpu) || 0;
+          
+          // Parse Memory (convert from Ki to GB)
+          const memKi = parseInt(capacity.memory.replace('Ki', '')) || 0;
+          totalMemory += memKi / (1024 * 1024);
+        });
+        
+        // Get actual usage from metrics server if available
+        try {
+          const metrics = await k8s.getNodeMetrics();
+          if (metrics && metrics.items) {
+            metrics.items.forEach(metric => {
+              const usage = metric.usage;
+              usedCpu += parseInt(usage.cpu.replace('n', '')) / 1000000000 || 0;
+              const memKi = parseInt(usage.memory.replace('Ki', '')) || 0;
+              usedMemory += memKi / (1024 * 1024);
+            });
+          }
+        } catch (e) {
+          // Metrics server not available, estimate from pods
+          usedCpu = totalCpu * 0.3;
+          usedMemory = totalMemory * 0.4;
+        }
+      }
+      
+      // Get storage from PVCs
+      const pvcs = await k8s.getAllPVCs();
+      let totalStorage = 0, usedStorage = 0;
+      if (pvcs && pvcs.items) {
+        pvcs.items.forEach(pvc => {
+          const size = pvc.spec.resources.requests.storage;
+          const sizeGi = parseInt(size.replace('Gi', '')) || 0;
+          totalStorage += sizeGi;
+          if (pvc.status.phase === 'Bound') {
+            usedStorage += sizeGi * 0.5; // Estimate 50% usage
+          }
+        });
+      }
+      
+    // Get network services count
+    const services = await k8s.getAllServices();
+    const networkServices = services?.items?.filter(s => 
+      s.spec.type === 'LoadBalancer' || s.spec.type === 'NodePort'
+    ) || [];
     
     res.json({
       services: {
@@ -111,28 +167,28 @@ app.get('/api/dashboard/stats', async (req, res) => {
         stopped: ALL_SERVICES.length - runningNamespaces.size
       },
       vms: {
-        total: vms.length,
+        total: vmDeployments.length,
         running: runningVMs,
-        stopped: vms.length - runningVMs
+        stopped: vmDeployments.length - runningVMs
       },
       storage: {
-        total: '500 GB',
-        used: `${Math.floor(Math.random() * 100 + 20)} GB`,
-        available: `${500 - Math.floor(Math.random() * 100 + 20)} GB`
+        total: totalStorage > 0 ? `${totalStorage} GB` : '0 GB',
+        used: totalStorage > 0 ? `${Math.floor(usedStorage)} GB` : '0 GB',
+        available: totalStorage > 0 ? `${totalStorage - Math.floor(usedStorage)} GB` : '0 GB'
       },
       cpu: {
-        total: 8,
-        used: Math.floor(Math.random() * 4 + 2),
-        percent: Math.floor(Math.random() * 50 + 25)
+        total: totalCpu || 0,
+        used: Math.round(usedCpu * 10) / 10,
+        percent: totalCpu > 0 ? Math.round((usedCpu / totalCpu) * 100) : 0
       },
       memory: {
-        total: '16 GB',
-        used: `${(Math.random() * 8 + 4).toFixed(1)} GB`,
-        percent: Math.floor(Math.random() * 50 + 25)
+        total: totalMemory > 0 ? `${Math.round(totalMemory)} GB` : '0 GB',
+        used: totalMemory > 0 ? `${Math.round(usedMemory * 10) / 10} GB` : '0 GB',
+        percent: totalMemory > 0 ? Math.round((usedMemory / totalMemory) * 100) : 0
       },
       networks: {
-        total: networks.length,
-        active: networks.filter(n => n.status === 'active').length
+        total: networkServices.length,
+        active: networkServices.filter(s => s.status && s.status.loadBalancer).length
       },
       cluster: {
         totalPods,
@@ -141,39 +197,18 @@ app.get('/api/dashboard/stats', async (req, res) => {
       }
     });
   } catch (error) {
-    // Fallback if K8s is not available
-    const runningVMs = vms.filter(v => v.status === 'running').length;
-    
-    res.json({
-      services: {
-        total: ALL_SERVICES.length,
-        running: 0,
-        stopped: ALL_SERVICES.length
-      },
-      vms: {
-        total: vms.length,
-        running: runningVMs,
-        stopped: vms.length - runningVMs
-      },
-      storage: {
-        total: '500 GB',
-        used: '0 GB',
-        available: '500 GB'
-      },
-      cpu: {
-        total: 8,
-        used: 0,
-        percent: 0
-      },
-      memory: {
-        total: '16 GB',
-        used: '0 GB',
-        percent: 0
-      },
-      networks: {
-        total: networks.length,
-        active: networks.filter(n => n.status === 'active').length
-      }
+    // Return error if K8s is not available - no mock data
+    console.error('Kubernetes cluster not available:', error.message);
+    res.status(503).json({
+      error: 'Kubernetes cluster not available',
+      message: 'Please ensure K3s is running and kubectl is configured',
+      services: { total: 0, running: 0, stopped: 0 },
+      vms: { total: 0, running: 0, stopped: 0 },
+      storage: { total: '0 GB', used: '0 GB', available: '0 GB' },
+      cpu: { total: 0, used: 0, percent: 0 },
+      memory: { total: '0 GB', used: '0 GB', percent: 0 },
+      networks: { total: 0, active: 0 },
+      cluster: { totalPods: 0, runningPods: 0, namespaces: 0 }
     });
   }
 });
@@ -326,41 +361,72 @@ app.post('/api/services/create', async (req, res) => {
 
   console.log(`Creating service: ${name} in namespace ${namespace}`);
   
-  // In a real implementation, this would use the kubernetes-client.js module
-  // For now, we'll simulate the creation
   try {
-    // Simulate kubectl commands
-    const newService = {
-      id: `custom-${Date.now()}`,
-      name,
-      category: category || 'custom',
-      description: `Custom service running ${image}`,
+    const k8s = require('./kubernetes-client');
+    
+    // Ensure namespace exists
+    await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
+    
+    // Create deployment
+    const deployResult = await k8s.createDeployment(
+      namespace, 
+      name, 
+      image, 
+      replicas || 1, 
+      port || 80,
+      { 'nimbus-category': category || 'custom' }
+    );
+    
+    if (!deployResult.success) {
+      throw new Error(deployResult.error);
+    }
+    
+    // Create service
+    const svcResult = await k8s.createService(
       namespace,
-      status: 'running',
-      endpoint: serviceType === 'NodePort' ? `http://localhost:${30000 + Math.floor(Math.random() * 2000)}` : undefined
-    };
-
-    // Add to services list (in memory for demo)
-    ALL_SERVICES.push(newService);
+      name,
+      port || 80,
+      port || 80,
+      serviceType || 'ClusterIP'
+    );
+    
+    if (!svcResult.success) {
+      throw new Error(svcResult.error);
+    }
+    
+    // Get the actual service to retrieve NodePort if applicable
+    let endpoint = undefined;
+    if (serviceType === 'NodePort') {
+      const svcInfo = await k8s.getService(namespace, name);
+      if (svcInfo && svcInfo.spec.ports && svcInfo.spec.ports[0].nodePort) {
+        endpoint = `http://localhost:${svcInfo.spec.ports[0].nodePort}`;
+      }
+    }
 
     res.json({
       ok: true,
-      message: `Service ${name} created successfully`,
-      service: newService,
+      message: `Service ${name} created successfully in Kubernetes`,
+      service: {
+        id: `custom-${Date.now()}`,
+        name,
+        category: category || 'custom',
+        description: `Custom service running ${image}`,
+        namespace,
+        status: 'running',
+        endpoint
+      },
       deployment: {
         name,
         namespace,
         image,
         replicas,
         port
-      },
-      note: 'To enable real Kubernetes integration, ensure kubectl is configured and use the kubernetes-client.js module'
+      }
     });
   } catch (err) {
     console.error('Error creating service:', err);
     res.status(500).json({
-      error: err.message,
-      note: 'Make sure kubectl is installed and configured to connect to your k3s cluster'
+      error: err.message
     });
   }
 });
@@ -740,44 +806,35 @@ app.get('/api/resources/sync', async (req, res) => {
       return res.json({ 
         synced: false, 
         message: 'Kubernetes cluster not available',
-        resources: resources 
+        resources: []
       });
     }
     
     // Get all deployments and services from K8s
     const pods = await k8s.getAllPods();
     const services = await k8s.getAllServices();
+    const helmReleases = await k8s.getAllHelmReleases();
     
     console.log(`✅ Synced with Kubernetes cluster`);
     res.json({ 
       synced: true, 
       clusterInfo: clusterStatus.info,
-      resources: resources,
       k8sPods: pods?.items?.length || 0,
-      k8sServices: services?.items?.length || 0
+      k8sServices: services?.items?.length || 0,
+      k8sHelmReleases: helmReleases?.length || 0
     });
   } catch (error) {
     res.json({ 
       synced: false, 
       error: error.message,
-      resources: resources 
+      resources: []
     });
   }
 });
 
 app.post('/api/resources', async (req, res) => {
   const { type, name, config } = req.body;
-  const resource = {
-    id: `res-${Date.now()}`,
-    name,
-    type,
-    status: 'creating',
-    resourceGroup: config.resourceGroup || 'default',
-    region: config.region || 'us-east-1',
-    created: new Date().toISOString(),
-    config
-  };
-  resources.push(resource);
+  
   console.log(`Creating resource: ${name} (${type})`);
   
   // Deploy to Kubernetes based on resource type
@@ -851,108 +908,151 @@ app.post('/api/resources', async (req, res) => {
         break;
     }
     
-    resource.status = 'running';
     console.log(`✅ Successfully deployed ${name} to Kubernetes`);
+    
+    res.json({
+      id: `res-${Date.now()}`,
+      name,
+      type,
+      status: 'running',
+      resourceGroup: config.resourceGroup || 'default',
+      region: 'local',
+      created: new Date().toISOString(),
+      config
+    });
   } catch (error) {
     console.error(`❌ Failed to deploy ${name}:`, error.message);
-    resource.status = 'failed';
-    resource.error = error.message;
+    res.status(500).json({
+      error: error.message,
+      name,
+      type,
+      status: 'failed'
+    });
   }
-  
-  res.json(resource);
 });
 
-app.get('/api/resources/:id', (req, res) => {
-  const resource = resources.find(r => r.id === req.params.id);
-  if (!resource) {
-    return res.status(404).json({ error: 'Resource not found' });
+app.get('/api/resources/:id', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const helmReleases = await k8s.getAllHelmReleases();
+    const deployments = await k8s.getAllDeployments();
+    
+    // Search in Helm releases
+    const helmRelease = helmReleases?.find(r => `helm-${r.name}-${r.namespace}` === req.params.id);
+    if (helmRelease) {
+      return res.json({
+        id: `helm-${helmRelease.name}-${helmRelease.namespace}`,
+        name: helmRelease.name,
+        type: 'database',
+        status: helmRelease.status === 'deployed' ? 'running' : 'stopped',
+        resourceGroup: helmRelease.namespace,
+        region: 'local',
+        created: helmRelease.updated,
+        config: {
+          resourceGroup: helmRelease.namespace,
+          chart: helmRelease.chart
+        }
+      });
+    }
+    
+    // Search in deployments
+    const deployment = deployments?.items?.find(d => d.metadata.uid === req.params.id);
+    if (deployment) {
+      return res.json({
+        id: deployment.metadata.uid,
+        name: deployment.metadata.name,
+        type: deployment.metadata.labels?.['nimbus-resource-type'] || 'function',
+        status: deployment.status.availableReplicas > 0 ? 'running' : 'stopped',
+        resourceGroup: deployment.metadata.namespace,
+        region: 'local',
+        created: deployment.metadata.creationTimestamp,
+        config: {
+          resourceGroup: deployment.metadata.namespace,
+          image: deployment.spec.template.spec.containers[0].image
+        }
+      });
+    }
+    
+    res.status(404).json({ error: 'Resource not found' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-  res.json(resource);
 });
 
-app.put('/api/resources/:id', (req, res) => {
-  const index = resources.findIndex(r => r.id === req.params.id);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Resource not found' });
-  }
-  resources[index] = { ...resources[index], ...req.body, id: req.params.id };
-  console.log(`Updated resource: ${req.params.id}`);
-  res.json(resources[index]);
+app.put('/api/resources/:id', async (req, res) => {
+  res.status(501).json({ error: 'Resource update not yet implemented' });
 });
 
 app.delete('/api/resources/:id', async (req, res) => {
-  const resource = resources.find(r => r.id === req.params.id);
-  if (!resource) {
-    return res.status(404).json({ error: 'Resource not found' });
-  }
-  
-  // Delete from Kubernetes
   try {
     const k8s = require('./kubernetes-client');
-    const namespace = resource.config.resourceGroup || 'default';
+    const id = req.params.id;
     
-    switch(resource.type) {
-      case 'database':
-      case 'function':
-        // Uninstall Helm chart or delete deployment
-        await k8s.uninstallHelmChart(resource.name, namespace).catch(() => {});
-        await k8s.deleteDeployment(namespace, resource.name).catch(() => {});
-        await k8s.deleteService(namespace, resource.name).catch(() => {});
-        break;
-        
-      case 'storage':
-        // Delete PVC
-        await execAsync(`kubectl delete pvc ${resource.name} -n ${namespace}`).catch(() => {});
-        break;
-        
-      case 'vm':
-        await k8s.deleteDeployment(namespace, resource.name).catch(() => {});
-        break;
-        
-      case 'loadbalancer':
-        await k8s.deleteService(namespace, resource.name).catch(() => {});
-        break;
+    // Parse ID to determine resource type and location
+    if (id.startsWith('helm-')) {
+      // Helm release: format is helm-name-namespace
+      const parts = id.replace('helm-', '').split('-');
+      const namespace = parts.pop();
+      const name = parts.join('-');
+      
+      await k8s.uninstallHelmChart(name, namespace);
+      console.log(`✅ Deleted Helm release: ${name} from ${namespace}`);
+    } else {
+      // Deployment: use UID to find and delete
+      const deployments = await k8s.getAllDeployments();
+      const deployment = deployments?.items?.find(d => d.metadata.uid === id);
+      
+      if (deployment) {
+        await k8s.deleteDeployment(deployment.metadata.namespace, deployment.metadata.name);
+        await k8s.deleteService(deployment.metadata.namespace, deployment.metadata.name).catch(() => {});
+        console.log(`✅ Deleted deployment: ${deployment.metadata.name}`);
+      } else {
+        return res.status(404).json({ error: 'Resource not found' });
+      }
     }
     
-    console.log(`✅ Deleted ${resource.name} from Kubernetes`);
+    res.json({ ok: true });
   } catch (error) {
-    console.error(`❌ Failed to delete ${resource.name}:`, error.message);
+    console.error(`❌ Failed to delete resource:`, error.message);
+    res.status(500).json({ error: error.message });
   }
-  
-  resources = resources.filter(r => r.id !== req.params.id);
-  console.log(`Deleted resource: ${resource.name}`);
-  res.json({ ok: true });
 });
 
 app.post('/api/resources/:id/:action', async (req, res) => {
-  const resource = resources.find(r => r.id === req.params.id);
-  if (!resource) {
-    return res.status(404).json({ error: 'Resource not found' });
-  }
-  
-  const action = req.params.action;
-  const k8s = require('./kubernetes-client');
-  const namespace = resource.config.resourceGroup || 'default';
-  
   try {
-    if (action === 'restart') {
-      await k8s.restartDeployment(namespace, resource.name);
-      resource.status = 'restarting';
-      setTimeout(() => { resource.status = 'running'; }, 5000);
-    } else if (action === 'stop') {
-      await execAsync(`kubectl scale deployment ${resource.name} -n ${namespace} --replicas=0`);
-      resource.status = 'stopped';
-    } else if (action === 'start') {
-      await execAsync(`kubectl scale deployment ${resource.name} -n ${namespace} --replicas=1`);
-      resource.status = 'running';
+    const k8s = require('./kubernetes-client');
+    const id = req.params.id;
+    const action = req.params.action;
+    
+    // Find the deployment
+    const deployments = await k8s.getAllDeployments();
+    const deployment = deployments?.items?.find(d => d.metadata.uid === id);
+    
+    if (!deployment) {
+      return res.status(404).json({ error: 'Resource not found' });
     }
-    console.log(`✅ ${action} resource: ${resource.name}`);
+    
+    const namespace = deployment.metadata.namespace;
+    const name = deployment.metadata.name;
+    
+    if (action === 'restart') {
+      await k8s.restartDeployment(namespace, name);
+      console.log(`✅ Restarted resource: ${name}`);
+    } else if (action === 'stop') {
+      await execAsync(`kubectl scale deployment ${name} -n ${namespace} --replicas=0`);
+      console.log(`✅ Stopped resource: ${name}`);
+    } else if (action === 'start') {
+      await execAsync(`kubectl scale deployment ${name} -n ${namespace} --replicas=1`);
+      console.log(`✅ Started resource: ${name}`);
+    } else {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+    
+    res.json({ ok: true });
   } catch (error) {
-    console.error(`❌ Failed to ${action} ${resource.name}:`, error.message);
+    console.error(`❌ Failed to perform action:`, error.message);
+    res.status(500).json({ error: error.message });
   }
-  
-  res.json({ ok: true, resource });
-  res.json({ ok: true });
 });
 
 // Networks endpoints

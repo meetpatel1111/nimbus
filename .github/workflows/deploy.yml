@@ -561,32 +561,29 @@ jobs:
 
       - name: Deploy Nimbus to Kubernetes (via SSH)
         run: |
-          # Copy Helm chart to remote server
+          # Copy deployment scripts and Helm chart to remote server
           scp -o StrictHostKeyChecking=no -r ./helm/nimbus ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/fix-and-deploy-nimbus.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
           
-          # Deploy via SSH on the remote server
+          # Deploy via SSH on the remote server using fix-and-deploy script
           ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} << 'ENDSSH'
-            # Wait for K3s to be fully ready
-            sudo kubectl wait --for=condition=Ready nodes --all --timeout=300s
+            # Set environment variables for Docker images
+            export BACKEND_IMAGE="${{ needs.build-docker-images.outputs.backend_image }}"
+            export FRONTEND_IMAGE="${{ needs.build-docker-images.outputs.frontend_image }}"
             
-            # Create namespace
-            sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
-            
-            # Deploy with Helm (need sudo to access kubeconfig)
-            sudo helm upgrade --install nimbus ~/nimbus \
-              -n nimbus \
-              --set backend.image="${{ needs.build-docker-images.outputs.backend_image }}" \
-              --set frontend.image="${{ needs.build-docker-images.outputs.frontend_image }}" \
-              --wait \
-              --timeout 10m
+            # Run the fix-and-deploy script with sudo
+            sudo -E bash ~/fix-and-deploy-nimbus.sh
             
             # Verify deployment
-            echo "=== Deployment Status ==="
+            echo ""
+            echo "=== Final Deployment Status ==="
             sudo kubectl get all -n nimbus
             
+            echo ""
             echo "=== Pod Status ==="
-            sudo kubectl get pods -n nimbus
+            sudo kubectl get pods -n nimbus -o wide
             
+            echo ""
             echo "=== Service Endpoints ==="
             sudo kubectl get svc -n nimbus
           ENDSSH

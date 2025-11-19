@@ -14,7 +14,7 @@ command_exists() {
 
 # 1. Check and start K3s
 echo "1️⃣ Checking K3s..."
-if ! command_exists kubectl; then
+if ! command_exists sudo kubectl; then
     echo "   ❌ K3s not installed. Installing K3s..."
     curl -sfL https://get.k3s.io | sh -
     echo "   ⏳ Waiting for K3s to be ready..."
