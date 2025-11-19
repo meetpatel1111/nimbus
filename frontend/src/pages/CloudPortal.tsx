@@ -8,51 +8,52 @@ interface ServiceCard {
   description: string;
   category: string;
   popular?: boolean;
+  route?: string;
 }
 
 const CLOUD_SERVICES: ServiceCard[] = [
   // Compute
-  { id: 'vms', name: 'Virtual Machines', icon: '🖥️', description: 'Deploy and manage VMs', category: 'Compute', popular: true },
-  { id: 'kubernetes', name: 'Kubernetes Service', icon: '☸️', description: 'Managed Kubernetes clusters', category: 'Compute', popular: true },
-  { id: 'functions', name: 'Functions', icon: '⚡', description: 'Serverless compute', category: 'Compute' },
+  { id: 'vms', name: 'Virtual Machines', icon: '🖥️', description: 'Deploy and manage VMs', category: 'Compute', popular: true, route: '/vms' },
+  { id: 'kubernetes', name: 'Kubernetes Service', icon: '☸️', description: 'Managed Kubernetes clusters', category: 'Compute', popular: true, route: '/services' },
+  { id: 'functions', name: 'Functions', icon: '⚡', description: 'Serverless compute', category: 'Compute', route: '/deploy-service?service=openfaas' },
   
   // Storage
-  { id: 'storage', name: 'Storage Accounts', icon: '💾', description: 'Scalable cloud storage', category: 'Storage', popular: true },
-  { id: 'disks', name: 'Disks', icon: '💿', description: 'Persistent block storage', category: 'Storage' },
-  { id: 'files', name: 'Files', icon: '📁', description: 'Managed file shares', category: 'Storage' },
+  { id: 'storage', name: 'Storage Accounts', icon: '💾', description: 'Scalable cloud storage', category: 'Storage', popular: true, route: '/storage' },
+  { id: 'disks', name: 'Disks', icon: '💿', description: 'Persistent block storage', category: 'Storage', route: '/storage' },
+  { id: 'files', name: 'Files', icon: '📁', description: 'Managed file shares', category: 'Storage', route: '/deploy-service?service=minio' },
   
   // Databases
-  { id: 'sql', name: 'SQL Database', icon: '🗄️', description: 'Managed PostgreSQL', category: 'Databases', popular: true },
-  { id: 'nosql', name: 'NoSQL Database', icon: '📊', description: 'MongoDB service', category: 'Databases' },
-  { id: 'cache', name: 'Cache for Redis', icon: '⚡', description: 'In-memory cache', category: 'Databases' },
+  { id: 'sql', name: 'SQL Database', icon: '🗄️', description: 'Managed PostgreSQL', category: 'Databases', popular: true, route: '/deploy-service?service=postgresql' },
+  { id: 'nosql', name: 'NoSQL Database', icon: '📊', description: 'MongoDB service', category: 'Databases', route: '/deploy-service?service=mongodb' },
+  { id: 'cache', name: 'Cache for Redis', icon: '⚡', description: 'In-memory cache', category: 'Databases', route: '/deploy-service?service=redis' },
   
   // Networking
-  { id: 'vnet', name: 'Virtual Networks', icon: '🌐', description: 'Private networks', category: 'Networking' },
-  { id: 'loadbalancer', name: 'Load Balancer', icon: '⚖️', description: 'Distribute traffic', category: 'Networking' },
-  { id: 'gateway', name: 'Application Gateway', icon: '🚪', description: 'Web traffic manager', category: 'Networking' },
+  { id: 'vnet', name: 'Virtual Networks', icon: '🌐', description: 'Private networks', category: 'Networking', route: '/networks' },
+  { id: 'loadbalancer', name: 'Load Balancer', icon: '⚖️', description: 'Distribute traffic', category: 'Networking', route: '/deploy-service?service=traefik' },
+  { id: 'gateway', name: 'Application Gateway', icon: '🚪', description: 'Web traffic manager', category: 'Networking', route: '/deploy-service?service=ingress-nginx' },
   
   // Security
-  { id: 'vault', name: 'Key Vault', icon: '🔐', description: 'Secrets management', category: 'Security' },
-  { id: 'identity', name: 'Identity', icon: '👤', description: 'Access management', category: 'Security' },
-  { id: 'security', name: 'Security Center', icon: '🛡️', description: 'Security monitoring', category: 'Security' },
+  { id: 'vault', name: 'Key Vault', icon: '🔐', description: 'Secrets management', category: 'Security', route: '/deploy-service?service=vault' },
+  { id: 'identity', name: 'Identity', icon: '👤', description: 'Access management', category: 'Security', route: '/deploy-service?service=keycloak' },
+  { id: 'security', name: 'Security Center', icon: '🛡️', description: 'Security monitoring', category: 'Security', route: '/deploy-service?service=kyverno' },
   
   // DevOps
-  { id: 'repos', name: 'Repos', icon: '📦', description: 'Git repositories', category: 'DevOps', popular: true },
-  { id: 'pipelines', name: 'Pipelines', icon: '🔄', description: 'CI/CD automation', category: 'DevOps', popular: true },
-  { id: 'artifacts', name: 'Artifacts', icon: '📦', description: 'Package management', category: 'DevOps' },
+  { id: 'repos', name: 'Repos', icon: '📦', description: 'Git repositories', category: 'DevOps', popular: true, route: '/deploy-service?service=gitea' },
+  { id: 'pipelines', name: 'Pipelines', icon: '🔄', description: 'CI/CD automation', category: 'DevOps', popular: true, route: '/deploy-service?service=drone' },
+  { id: 'artifacts', name: 'Artifacts', icon: '📦', description: 'Package management', category: 'DevOps', route: '/deploy-service?service=harbor' },
   
   // Monitoring
-  { id: 'monitor', name: 'Monitor', icon: '📊', description: 'Application insights', category: 'Monitoring' },
-  { id: 'logs', name: 'Log Analytics', icon: '📝', description: 'Centralized logging', category: 'Monitoring' },
-  { id: 'alerts', name: 'Alerts', icon: '🔔', description: 'Alert management', category: 'Monitoring' },
+  { id: 'monitor', name: 'Monitor', icon: '📊', description: 'Application insights', category: 'Monitoring', route: '/deploy-service?service=prometheus' },
+  { id: 'logs', name: 'Log Analytics', icon: '📝', description: 'Centralized logging', category: 'Monitoring', route: '/deploy-service?service=loki' },
+  { id: 'alerts', name: 'Alerts', icon: '🔔', description: 'Alert management', category: 'Monitoring', route: '/deploy-service?service=grafana' },
   
   // AI + ML
-  { id: 'ml', name: 'Machine Learning', icon: '🤖', description: 'ML model training', category: 'AI + ML' },
-  { id: 'cognitive', name: 'Cognitive Services', icon: '🧠', description: 'AI APIs', category: 'AI + ML' },
+  { id: 'ml', name: 'Machine Learning', icon: '🤖', description: 'ML model training', category: 'AI + ML', route: '/deploy-service' },
+  { id: 'cognitive', name: 'Cognitive Services', icon: '🧠', description: 'AI APIs', category: 'AI + ML', route: '/deploy-service' },
   
   // Analytics
-  { id: 'analytics', name: 'Analytics', icon: '📈', description: 'Data analytics', category: 'Analytics' },
-  { id: 'streaming', name: 'Event Streaming', icon: '🌊', description: 'Real-time data', category: 'Analytics' },
+  { id: 'analytics', name: 'Analytics', icon: '📈', description: 'Data analytics', category: 'Analytics', route: '/deploy-service?service=elasticsearch' },
+  { id: 'streaming', name: 'Event Streaming', icon: '🌊', description: 'Real-time data', category: 'Analytics', route: '/deploy-service?service=kafka' },
 ];
 
 const CATEGORIES = [
@@ -135,14 +136,14 @@ export default function CloudPortal() {
           
           <div className="sidebar-section">
             <div className="sidebar-title">Resources</div>
-            <div className="sidebar-item">
+            <Link to="/resource-groups" className="sidebar-item">
               <span className="sidebar-icon">📦</span>
               <span>Resource Groups</span>
-            </div>
-            <div className="sidebar-item">
+            </Link>
+            <Link to="/resources" className="sidebar-item">
               <span className="sidebar-icon">🏷️</span>
-              <span>Tags</span>
-            </div>
+              <span>All Resources</span>
+            </Link>
             <div className="sidebar-item">
               <span className="sidebar-icon">💰</span>
               <span>Cost Management</span>
@@ -199,10 +200,15 @@ export default function CloudPortal() {
             <h2>Popular services</h2>
             <div className="services-grid-compact">
               {popularServices.map(service => (
-                <div key={service.id} className="service-tile">
+                <Link 
+                  key={service.id} 
+                  to={service.route || '/deploy-service'} 
+                  className="service-tile"
+                  style={{ textDecoration: 'none' }}
+                >
                   <div className="service-tile-icon">{service.icon}</div>
                   <div className="service-tile-name">{service.name}</div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>
@@ -227,7 +233,12 @@ export default function CloudPortal() {
             {/* Services Grid */}
             <div className="services-grid">
               {filteredServices.map(service => (
-                <div key={service.id} className="service-card-azure">
+                <Link 
+                  key={service.id} 
+                  to={service.route || '/deploy-service'} 
+                  className="service-card-azure"
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
                   <div className="service-card-header">
                     <div className="service-card-icon">{service.icon}</div>
                     <div className="service-card-favorite">⭐</div>
@@ -235,7 +246,7 @@ export default function CloudPortal() {
                   <h3 className="service-card-title">{service.name}</h3>
                   <p className="service-card-description">{service.description}</p>
                   <div className="service-card-category">{service.category}</div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

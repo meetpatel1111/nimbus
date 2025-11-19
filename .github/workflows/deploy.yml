@@ -1,8 +1,14 @@
 name: Nimbus - Complete Deployment Pipeline
 
 on:
-  # push:
-  #   branches: [ main ]
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'helm/**'
+      - 'scripts/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
       cloud_provider:
@@ -143,6 +149,68 @@ jobs:
           tags: ${{ steps.meta-backend.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Job 2.5: Auto-Update Existing Deployment (on push to main)
+  auto-update-deployment:
+    name: Auto-Update Nimbus Deployment
+    needs: build-docker-images
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && secrets.AWS_INSTANCE_IP != '' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.AWS_INSTANCE_IP }} >> ~/.ssh/known_hosts
+
+      - name: Copy updated scripts to instance
+        run: |
+          # Copy Helm chart
+          scp -o StrictHostKeyChecking=no -r ./helm/nimbus ubuntu@${{ secrets.AWS_INSTANCE_IP }}:~/
+          
+          # Copy deployment scripts
+          scp -o StrictHostKeyChecking=no ./scripts/redeploy-nimbus.sh ubuntu@${{ secrets.AWS_INSTANCE_IP }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/force-update-images.sh ubuntu@${{ secrets.AWS_INSTANCE_IP }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/check-nimbus-status.sh ubuntu@${{ secrets.AWS_INSTANCE_IP }}:~/
+          
+          # Make scripts executable
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.AWS_INSTANCE_IP }} "chmod +x ~/*.sh"
+
+      - name: Auto-deploy latest images
+        run: |
+          ssh -o StrictHostKeyChecking=no ubuntu@${{ secrets.AWS_INSTANCE_IP }} << 'ENDSSH'
+            echo "🔄 Auto-deploying latest Nimbus images..."
+            echo ""
+            
+            # Set environment variables for Docker images
+            export BACKEND_IMAGE="${{ needs.build-docker-images.outputs.backend_image }}"
+            export FRONTEND_IMAGE="${{ needs.build-docker-images.outputs.frontend_image }}"
+            
+            echo "📦 Deploying images:"
+            echo "   Backend:  $BACKEND_IMAGE"
+            echo "   Frontend: $FRONTEND_IMAGE"
+            echo ""
+            
+            # Run redeploy script
+            sudo -E bash ~/redeploy-nimbus.sh
+            
+            echo ""
+            echo "✅ Auto-deployment complete!"
+            echo ""
+            echo "🌐 Access Nimbus at: http://${{ secrets.AWS_INSTANCE_IP }}:30400"
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          echo "Waiting 10 seconds for deployment to stabilize..."
+          sleep 10
+          
+          echo "Testing Nimbus API..."
+          curl -f http://${{ secrets.AWS_INSTANCE_IP }}:30400/api/dashboard/stats || echo "⚠️ API not responding yet"
 
   # Job 3: Deploy Infrastructure (AWS)
   deploy-aws-infrastructure:
@@ -559,12 +627,23 @@ jobs:
           sed -i "s/127.0.0.1/${{ steps.get-ip.outputs.ip }}/g" ~/.kube/config
           chmod 600 ~/.kube/config
 
+      - name: Copy deployment scripts to remote server
+        run: |
+          # Copy Helm chart
+          scp -o StrictHostKeyChecking=no -r ./helm/nimbus ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          
+          # Copy all deployment scripts
+          scp -o StrictHostKeyChecking=no ./scripts/fix-and-deploy-nimbus.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/redeploy-nimbus.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/force-update-images.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          scp -o StrictHostKeyChecking=no ./scripts/check-nimbus-status.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          
+          # Make scripts executable
+          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
+            "chmod +x ~/*.sh"
+
       - name: Deploy Nimbus to Kubernetes (via SSH)
         run: |
-          # Copy deployment scripts and Helm chart to remote server
-          scp -o StrictHostKeyChecking=no -r ./helm/nimbus ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
-          scp -o StrictHostKeyChecking=no ./scripts/fix-and-deploy-nimbus.sh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
-          
           # Deploy via SSH on the remote server using fix-and-deploy script
           ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} << 'ENDSSH'
             # Set environment variables for Docker images
@@ -572,6 +651,11 @@ jobs:
             export FRONTEND_IMAGE="${{ needs.build-docker-images.outputs.frontend_image }}"
             
             # Run the fix-and-deploy script with sudo
+            echo "🚀 Deploying Nimbus with images:"
+            echo "   Backend:  $BACKEND_IMAGE"
+            echo "   Frontend: $FRONTEND_IMAGE"
+            echo ""
+            
             sudo -E bash ~/fix-and-deploy-nimbus.sh
             
             # Verify deployment
@@ -586,6 +670,10 @@ jobs:
             echo ""
             echo "=== Service Endpoints ==="
             sudo kubectl get svc -n nimbus
+            
+            echo ""
+            echo "=== Images in Use ==="
+            sudo kubectl get pods -n nimbus -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}{end}'
           ENDSSH
 
   # Job 7: Deployment Summary
@@ -635,6 +723,19 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## 📚 Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. SSH into the instance" >> $GITHUB_STEP_SUMMARY
-          echo "2. Check secrets: \`sudo cat /root/.mini-cloud-secrets\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check Nimbus status: \`sudo bash ~/check-nimbus-status.sh\`" >> $GITHUB_STEP_SUMMARY
           echo "3. Verify services: \`kubectl get pods -A\`" >> $GITHUB_STEP_SUMMARY
-          echo "4. Access Traefik: \`http://<ip>:30080/dashboard/\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Access Nimbus UI: \`http://<ip>:30400\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 🔄 Update Deployment Scripts" >> $GITHUB_STEP_SUMMARY
+          echo "The following scripts are available on the instance:" >> $GITHUB_STEP_SUMMARY
+          echo "- \`~/fix-and-deploy-nimbus.sh\` - Initial deployment" >> $GITHUB_STEP_SUMMARY
+          echo "- \`~/redeploy-nimbus.sh\` - Update with latest images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`~/force-update-images.sh\` - Force pull fresh images" >> $GITHUB_STEP_SUMMARY
+          echo "- \`~/check-nimbus-status.sh\` - Check deployment status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "To update after code changes:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "ssh ubuntu@<instance-ip>" >> $GITHUB_STEP_SUMMARY
+          echo "sudo bash ~/redeploy-nimbus.sh" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

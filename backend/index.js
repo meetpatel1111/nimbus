@@ -1185,6 +1185,203 @@ app.delete('/api/networks/:id', async (req, res) => {
   }
 });
 
+// Resource Groups endpoints - Logical grouping using Kubernetes namespaces with labels
+app.get('/api/resource-groups', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    const namespaces = await k8s.getNamespaces();
+    
+    if (!namespaces || !namespaces.items) {
+      return res.json([]);
+    }
+    
+    // Get all resources in each namespace
+    const deployments = await k8s.getAllDeployments();
+    const services = await k8s.getAllServices();
+    const pvcs = await k8s.getAllPVCs();
+    const helmReleases = await k8s.getAllHelmReleases();
+    
+    // Convert namespaces to resource groups
+    const resourceGroups = namespaces.items
+      .filter(ns => !['kube-system', 'kube-public', 'kube-node-lease'].includes(ns.metadata.name))
+      .map(ns => {
+        const name = ns.metadata.name;
+        
+        // Count resources in this namespace
+        const deploymentsCount = deployments?.items?.filter(d => d.metadata.namespace === name).length || 0;
+        const servicesCount = services?.items?.filter(s => s.metadata.namespace === name).length || 0;
+        const pvcsCount = pvcs?.items?.filter(p => p.metadata.namespace === name).length || 0;
+        const helmCount = helmReleases?.filter(h => h.namespace === name).length || 0;
+        
+        const totalResources = deploymentsCount + servicesCount + pvcsCount + helmCount;
+        
+        return {
+          id: ns.metadata.uid,
+          name: name,
+          description: ns.metadata.labels?.['description'] || `Resource group for ${name}`,
+          location: ns.metadata.labels?.['location'] || 'local',
+          tags: ns.metadata.labels || {},
+          resourceCount: totalResources,
+          resources: {
+            deployments: deploymentsCount,
+            services: servicesCount,
+            storage: pvcsCount,
+            helm: helmCount
+          },
+          status: ns.status.phase === 'Active' ? 'active' : 'inactive',
+          createdAt: ns.metadata.creationTimestamp
+        };
+      });
+    
+    res.json(resourceGroups);
+  } catch (error) {
+    console.error('Error fetching resource groups from K8s:', error);
+    res.json([]);
+  }
+});
+
+app.post('/api/resource-groups', async (req, res) => {
+  const { name, description, location, tags } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ error: 'Resource group name is required' });
+  }
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
+    
+    // Create namespace with labels
+    const labels = {
+      'nimbus-type': 'resource-group',
+      'description': description || `Resource group for ${name}`,
+      'location': location || 'local',
+      ...(tags || {})
+    };
+    
+    const result = await k8s.createNamespaceWithLabels(name, labels);
+    
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+    
+    console.log(`✅ Created resource group: ${name}`);
+    
+    res.json({
+      id: `rg-${Date.now()}`,
+      name,
+      description: description || `Resource group for ${name}`,
+      location: location || 'local',
+      tags: tags || {},
+      resourceCount: 0,
+      resources: {
+        deployments: 0,
+        services: 0,
+        storage: 0,
+        helm: 0
+      },
+      status: 'active',
+      createdAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error creating resource group:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/resource-groups/:name', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const name = req.params.name;
+    
+    // Get namespace details
+    const namespaces = await k8s.getNamespaces();
+    const namespace = namespaces?.items?.find(ns => ns.metadata.name === name);
+    
+    if (!namespace) {
+      return res.status(404).json({ error: 'Resource group not found' });
+    }
+    
+    // Get all resources in this namespace
+    const deployments = await k8s.getAllDeployments();
+    const services = await k8s.getAllServices();
+    const pvcs = await k8s.getAllPVCs();
+    const helmReleases = await k8s.getAllHelmReleases();
+    
+    const nsDeployments = deployments?.items?.filter(d => d.metadata.namespace === name) || [];
+    const nsServices = services?.items?.filter(s => s.metadata.namespace === name) || [];
+    const nsPvcs = pvcs?.items?.filter(p => p.metadata.namespace === name) || [];
+    const nsHelm = helmReleases?.filter(h => h.namespace === name) || [];
+    
+    res.json({
+      id: namespace.metadata.uid,
+      name: name,
+      description: namespace.metadata.labels?.['description'] || `Resource group for ${name}`,
+      location: namespace.metadata.labels?.['location'] || 'local',
+      tags: namespace.metadata.labels || {},
+      resourceCount: nsDeployments.length + nsServices.length + nsPvcs.length + nsHelm.length,
+      resources: {
+        deployments: nsDeployments.map(d => ({
+          name: d.metadata.name,
+          type: 'deployment',
+          status: d.status.availableReplicas > 0 ? 'running' : 'stopped'
+        })),
+        services: nsServices.map(s => ({
+          name: s.metadata.name,
+          type: 'service',
+          serviceType: s.spec.type
+        })),
+        storage: nsPvcs.map(p => ({
+          name: p.metadata.name,
+          type: 'pvc',
+          size: p.spec.resources.requests.storage,
+          status: p.status.phase
+        })),
+        helm: nsHelm.map(h => ({
+          name: h.name,
+          type: 'helm',
+          chart: h.chart,
+          status: h.status
+        }))
+      },
+      status: namespace.status.phase === 'Active' ? 'active' : 'inactive',
+      createdAt: namespace.metadata.creationTimestamp
+    });
+  } catch (error) {
+    console.error('Error fetching resource group details:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/resource-groups/:name', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const name = req.params.name;
+    
+    // Don't allow deletion of system namespaces
+    if (['default', 'kube-system', 'kube-public', 'kube-node-lease', 'nimbus'].includes(name)) {
+      return res.status(403).json({ error: 'Cannot delete system resource group' });
+    }
+    
+    await k8s.deleteNamespace(name);
+    console.log(`✅ Deleted resource group: ${name}`);
+    
+    res.json({ ok: true, message: `Resource group ${name} and all its resources deleted` });
+  } catch (error) {
+    console.error('Error deleting resource group:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Deploy endpoint - provisions cloud infrastructure
 app.post('/api/deploy', async (req, res) => {
   const { provider, name, region, instanceType } = req.body;

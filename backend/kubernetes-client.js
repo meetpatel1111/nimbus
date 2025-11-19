@@ -340,6 +340,28 @@ async function createNamespace(name) {
 }
 
 /**
+ * Create a namespace with labels
+ */
+async function createNamespaceWithLabels(name, labels = {}) {
+  try {
+    const labelStr = Object.entries(labels)
+      .map(([key, val]) => `${key}=${val}`)
+      .join(',');
+    
+    const { stdout } = await execAsync(`kubectl create namespace ${name}`);
+    
+    // Add labels if provided
+    if (labelStr) {
+      await execAsync(`kubectl label namespace ${name} ${labelStr}`);
+    }
+    
+    return { success: true, output: stdout };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
  * Delete a namespace
  */
 async function deleteNamespace(name) {
@@ -372,5 +394,6 @@ module.exports = {
   getService,
   getNamespaces,
   createNamespace,
+  createNamespaceWithLabels,
   deleteNamespace
 };

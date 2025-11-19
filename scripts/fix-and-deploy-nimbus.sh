@@ -62,11 +62,25 @@ echo ""
 
 # 5. Deploy with Helm
 echo "5️⃣ Deploying Nimbus with Helm..."
-BACKEND_IMAGE="${BACKEND_IMAGE:-meetpatel1111/nimbus-platform:backend-latest}"
-FRONTEND_IMAGE="${FRONTEND_IMAGE:-meetpatel1111/nimbus-platform:frontend-latest}"
+
+# Set default images if not provided
+if [ -z "$BACKEND_IMAGE" ]; then
+  BACKEND_IMAGE="meetpatel1111/nimbus-platform:backend-latest"
+fi
+
+if [ -z "$FRONTEND_IMAGE" ]; then
+  FRONTEND_IMAGE="meetpatel1111/nimbus-platform:frontend-latest"
+fi
 
 echo "   🐳 Backend:  $BACKEND_IMAGE"
 echo "   🐳 Frontend: $FRONTEND_IMAGE"
+echo ""
+
+# Pull latest images first
+echo "   📥 Pulling latest Docker images..."
+sudo crictl pull $BACKEND_IMAGE 2>/dev/null || echo "   ⚠️  Could not pre-pull backend image"
+sudo crictl pull $FRONTEND_IMAGE 2>/dev/null || echo "   ⚠️  Could not pre-pull frontend image"
+echo ""
 
 # Use helm with kubeconfig flag
 helm upgrade --install nimbus ./helm/nimbus \

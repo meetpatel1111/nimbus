@@ -1,11 +1,27 @@
 #!/bin/bash
-# Redeploy Nimbus with latest code changes
+# Redeploy Nimbus with latest Docker images
 
-echo "🔄 Redeploying Nimbus Cloud with latest changes..."
+echo "🔄 Redeploying Nimbus Cloud with latest images..."
 echo ""
 
-# Pull latest code
-echo "1️⃣ Pulling latest code from GitHub..."
+# Set Docker image names
+if [ -z "$BACKEND_IMAGE" ]; then
+  DOCKER_USER="${DOCKER_USERNAME:-meetpatel1111}"
+  BACKEND_IMAGE="$DOCKER_USER/nimbus-platform:backend-latest"
+fi
+
+if [ -z "$FRONTEND_IMAGE" ]; then
+  DOCKER_USER="${DOCKER_USERNAME:-meetpatel1111}"
+  FRONTEND_IMAGE="$DOCKER_USER/nimbus-platform:frontend-latest"
+fi
+
+echo "📦 Using images:"
+echo "   Backend:  $BACKEND_IMAGE"
+echo "   Frontend: $FRONTEND_IMAGE"
+echo ""
+
+# Pull latest code for Helm chart
+echo "1️⃣ Pulling latest Helm chart from GitHub..."
 cd /tmp/nimbus 2>/dev/null || cd /tmp
 if [ -d "nimbus" ]; then
     cd nimbus
@@ -16,23 +32,28 @@ else
 fi
 echo ""
 
-# Restart backend deployment
-echo "2️⃣ Restarting backend deployment..."
-kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout restart deployment nimbus-backend -n nimbus
+# Force pull latest Docker images on the node
+echo "2️⃣ Pulling latest Docker images..."
+sudo crictl pull $BACKEND_IMAGE
+sudo crictl pull $FRONTEND_IMAGE
 echo ""
 
-# Wait for backend to be ready
-echo "3️⃣ Waiting for backend to be ready..."
+# Update deployment with new images using Helm
+echo "3️⃣ Updating Nimbus deployment with latest images..."
+sudo helm upgrade nimbus ./helm/nimbus \
+  --kubeconfig /etc/rancher/k3s/k3s.yaml \
+  -n nimbus \
+  --set backend.image="$BACKEND_IMAGE" \
+  --set frontend.image="$FRONTEND_IMAGE" \
+  --set backend.imagePullPolicy=Always \
+  --set frontend.imagePullPolicy=Always \
+  --wait \
+  --timeout 5m
+echo ""
+
+# Wait for rollout to complete
+echo "4️⃣ Waiting for deployments to be ready..."
 kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment nimbus-backend -n nimbus --timeout=300s
-echo ""
-
-# Restart frontend deployment
-echo "4️⃣ Restarting frontend deployment..."
-kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout restart deployment nimbus-frontend -n nimbus
-echo ""
-
-# Wait for frontend to be ready
-echo "5️⃣ Waiting for frontend to be ready..."
 kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment nimbus-frontend -n nimbus --timeout=300s
 echo ""
 
