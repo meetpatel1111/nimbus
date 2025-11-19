@@ -507,31 +507,32 @@ jobs:
           scp -o StrictHostKeyChecking=no -r ./helm/nimbus ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
           
           # Deploy via SSH on the remote server
-          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} << 'ENDSSH'
             # Wait for K3s to be fully ready
             sudo kubectl wait --for=condition=Ready nodes --all --timeout=300s
             
             # Create namespace
             sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
             
-            # Deploy with Helm
-            sudo helm upgrade --install nimbus ~/nimbus \
+            # Deploy with Helm using kubeconfig flag
+            helm upgrade --install nimbus ~/nimbus \
+              --kubeconfig /etc/rancher/k3s/k3s.yaml \
               -n nimbus \
-              --set backend.image=${{ needs.build-docker-images.outputs.backend_image }} \
-              --set frontend.image=${{ needs.build-docker-images.outputs.frontend_image }} \
+              --set backend.image="${{ needs.build-docker-images.outputs.backend_image }}" \
+              --set frontend.image="${{ needs.build-docker-images.outputs.frontend_image }}" \
               --wait \
               --timeout 10m
             
             # Verify deployment
             echo "=== Deployment Status ==="
-            sudo kubectl get all -n nimbus
+            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get all -n nimbus
             
             echo "=== Pod Status ==="
-            sudo kubectl get pods -n nimbus
+            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -n nimbus
             
             echo "=== Service Endpoints ==="
-            sudo kubectl get svc -n nimbus
-          EOF
+            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get svc -n nimbus
+          ENDSSH
 
   # Job 7: Deployment Summary
   deployment-summary:
