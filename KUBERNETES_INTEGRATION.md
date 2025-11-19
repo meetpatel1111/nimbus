@@ -1,302 +1,148 @@
-# 🎯 Kubernetes Integration Guide
+# Kubernetes Integration - Fully Dynamic Implementation
 
-This guide explains how to enable **real Kubernetes integration** so you can actually create and manage services on your k3s cluster.
+## ✅ What's Now Dynamic from Kubernetes
 
-## Current State
+All data is now queried directly from your Kubernetes cluster. No more in-memory storage that gets lost on restart!
 
-Right now, the platform uses **mock data** for demonstration purposes. This means:
-- ✅ You can see all 21 pre-installed services
-- ✅ You can create VMs, storage, networks (simulated)
-- ✅ You can deploy infrastructure to AWS/Azure
-- ⚠️ Service creation is simulated (not actually deployed to k8s)
+### 1. **Virtual Machines** (`/api/vms`)
+- **GET**: Queries K8s deployments with label `nimbus-type: vm`
+- **POST**: Creates K8s deployment with proper labels
+- **DELETE**: Deletes K8s deployment
+- **Actions (start/stop)**: Scales deployment replicas (0 or 1)
 
-## Enabling Real Kubernetes Integration
+**Labels used:**
+- `nimbus-type: vm`
+- `nimbus-cpu`, `nimbus-memory`, `nimbus-disk`, `nimbus-image`
 
-### Step 1: Ensure k3s is Running
+### 2. **Storage Volumes** (`/api/storage/volumes`)
+- **GET**: Queries K8s PVCs with label `nimbus-type: volume`
+- **POST**: Creates PersistentVolumeClaim
+- **DELETE**: Deletes PVC
 
-After deploying to cloud and running the bootstrap script:
+**Labels used:**
+- `nimbus-type: volume`
+- `nimbus-storage-type` (longhorn, etc.)
+
+### 3. **Resources** (`/api/resources`)
+- **GET**: Queries:
+  - Helm releases (databases, services)
+  - K8s deployments with label `nimbus-type: resource`
+- **POST**: Deploys to K8s based on type:
+  - **Database** → Helm chart (PostgreSQL, MongoDB, Redis)
+  - **Function** → K8s Deployment + Service
+  - **Storage** → PVC
+  - **VM** → K8s Deployment
+  - **Load Balancer** → K8s Service (LoadBalancer type)
+- **DELETE**: Uninstalls Helm release or deletes deployment
+
+**Labels used:**
+- `nimbus-type: resource`
+- `nimbus-resource-type` (function, vm, etc.)
+
+### 4. **Services** (`/api/services`)
+- **GET**: Queries K8s pods to check which services are running
+- Updates status dynamically based on namespace activity
+
+### 5. **Dashboard Stats** (`/api/dashboard/stats`)
+- Queries K8s for:
+  - Total pods
+  - Running pods
+  - Active namespaces
+  - Service counts
+
+## 🔄 Data Persistence
+
+**Before:**
+- Data stored in memory arrays (`let vms = []`)
+- Lost on backend restart
+- Not synced with actual K8s state
+
+**After:**
+- All data queried from Kubernetes
+- Survives backend restarts
+- Always reflects actual cluster state
+- Resources deployed to K8s are tracked via labels
+
+## 🏷️ Label Strategy
+
+All Nimbus-created resources use labels for identification:
+
+```yaml
+metadata:
+  labels:
+    nimbus-type: vm|volume|resource
+    nimbus-resource-type: function|vm|database
+    nimbus-cpu: "2"
+    nimbus-memory: "4Gi"
+    # ... other metadata
+```
+
+This allows:
+- Filtering Nimbus resources from system resources
+- Querying specific resource types
+- Storing metadata without external database
+
+## 📊 What Happens Now
+
+### Creating a VM:
+1. User clicks "Create VM" in UI
+2. Frontend calls `POST /api/vms`
+3. Backend creates K8s Deployment with labels
+4. VM appears in K8s cluster
+5. Next time you refresh, it queries K8s and shows the VM
+
+### Backend Restart:
+1. Backend restarts (pod restart, code update, etc.)
+2. User refreshes UI
+3. Backend queries K8s for all resources
+4. All VMs, storage, resources appear (nothing lost!)
+
+## 🚀 Benefits
+
+1. **Persistent**: Data survives backend restarts
+2. **Accurate**: Always shows actual cluster state
+3. **No Database Needed**: Uses K8s as the source of truth
+4. **Scalable**: Can query from any K8s cluster
+5. **Portable**: Works across different environments
+
+## 🔧 Deployment
+
+To apply these changes:
 
 ```bash
 # SSH into your instance
-ssh ubuntu@<your-instance-ip>
+ssh ubuntu@100.26.58.65
 
-# Check k3s status
-sudo systemctl status k3s
+# Pull latest code
+cd /tmp/nimbus
+git pull
 
-# Verify cluster is running
-kubectl get nodes
-kubectl get pods -A
+# Restart backend to pick up changes
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout restart deployment nimbus-backend -n nimbus
+
+# Wait for it to be ready
+kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment nimbus-backend -n nimbus
 ```
 
-### Step 2: Configure kubectl Access
+## 📝 Testing
 
-**Option A: Run Backend on the Same Server**
-
-If you run the Nimbus backend on the same server as k3s:
+Test the dynamic integration:
 
 ```bash
-# The backend will automatically use /etc/rancher/k3s/k3s.yaml
-export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+# Create a VM via UI
+# Then check K8s:
+kubectl get deployments -l nimbus-type=vm
+
+# Create storage via UI
+# Then check K8s:
+kubectl get pvc -l nimbus-type=volume
+
+# Restart backend
+kubectl rollout restart deployment nimbus-backend -n nimbus
+
+# Refresh UI - everything should still be there!
 ```
 
-**Option B: Remote Access (Recommended for Development)**
+## 🎯 Result
 
-Copy the kubeconfig to your local machine:
-
-```bash
-# On your local machine
-scp ubuntu@<instance-ip>:/etc/rancher/k3s/k3s.yaml ~/.kube/nimbus-config
-
-# Edit the file and replace 127.0.0.1 with your instance IP
-sed -i 's/127.0.0.1/<instance-ip>/g' ~/.kube/nimbus-config
-
-# Set KUBECONFIG
-export KUBECONFIG=~/.kube/nimbus-config
-
-# Test connection
-kubectl get nodes
-```
-
-### Step 3: Update Backend to Use Real Kubernetes
-
-Replace the mock implementation in `backend/index.js` with real Kubernetes calls:
-
-```javascript
-// At the top of backend/index.js
-const k8s = require('./kubernetes-client');
-
-// Replace the mock service creation endpoint
-app.post('/api/services/create', async (req, res) => {
-  const { name, namespace, image, replicas, port, serviceType } = req.body;
-  
-  try {
-    // Check cluster connection
-    const clusterStatus = await k8s.checkClusterConnection();
-    if (!clusterStatus.connected) {
-      return res.status(503).json({
-        error: 'Kubernetes cluster not accessible',
-        details: clusterStatus.error
-      });
-    }
-
-    // Create deployment
-    const deployment = await k8s.createDeployment(
-      namespace,
-      name,
-      image,
-      replicas,
-      port
-    );
-
-    if (!deployment.success) {
-      return res.status(500).json({ error: deployment.error });
-    }
-
-    // Create service
-    const service = await k8s.createService(
-      namespace,
-      name,
-      port,
-      port,
-      serviceType
-    );
-
-    if (!service.success) {
-      return res.status(500).json({ error: service.error });
-    }
-
-    res.json({
-      ok: true,
-      message: `Service ${name} deployed successfully`,
-      deployment: deployment.output,
-      service: service.output
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-```
-
-### Step 4: Install Kubernetes Client (Optional)
-
-For better integration, you can use the official Kubernetes JavaScript client:
-
-```bash
-cd backend
-npm install @kubernetes/client-node
-```
-
-Then update `kubernetes-client.js` to use the official client instead of kubectl commands.
-
-### Step 5: Test Service Creation
-
-1. Start your backend with kubectl configured
-2. Go to **Create Service** page
-3. Fill in the form (e.g., nginx service)
-4. Click "Deploy Service"
-5. Verify it was created:
-
-```bash
-kubectl get deployments -n apps
-kubectl get svc -n apps
-kubectl get pods -n apps
-```
-
-## Real Kubernetes Integration Features
-
-Once integrated, you'll be able to:
-
-### ✅ Create Services
-- Deploy any Docker image
-- Configure replicas, ports, resources
-- Choose service type (ClusterIP, NodePort, LoadBalancer)
-
-### ✅ Manage Existing Services
-- View real-time pod status
-- Restart deployments
-- Scale replicas up/down
-- Delete services
-
-### ✅ Storage Management
-- Create PersistentVolumeClaims
-- Attach volumes to pods
-- View storage usage
-
-### ✅ Network Management
-- Create Kubernetes Services
-- Configure Ingress rules
-- Manage NetworkPolicies
-
-## Example: Creating a Redis Service
-
-Using the real Kubernetes integration:
-
-```javascript
-// This will actually deploy Redis to your cluster
-POST /api/services/create
-{
-  "name": "redis",
-  "namespace": "apps",
-  "image": "redis:alpine",
-  "replicas": 1,
-  "port": 6379,
-  "serviceType": "ClusterIP"
-}
-```
-
-Verify:
-```bash
-kubectl get pods -n apps | grep redis
-kubectl get svc -n apps | grep redis
-```
-
-## Advanced: Using Helm Charts
-
-The `kubernetes-client.js` module includes Helm integration:
-
-```javascript
-// Install a Helm chart
-const result = await k8s.installHelmChart(
-  'my-redis',
-  'bitnami/redis',
-  'apps',
-  {
-    'auth.enabled': 'false',
-    'replica.replicaCount': '2'
-  }
-);
-```
-
-## Troubleshooting
-
-### "Kubernetes cluster not accessible"
-
-```bash
-# Check kubectl works
-kubectl get nodes
-
-# Check KUBECONFIG
-echo $KUBECONFIG
-
-# Verify backend can access kubectl
-which kubectl
-kubectl version
-```
-
-### "Permission denied"
-
-```bash
-# Ensure backend has access to kubeconfig
-chmod 644 /etc/rancher/k3s/k3s.yaml
-
-# Or run backend as root (not recommended for production)
-sudo node index.js
-```
-
-### "Image pull errors"
-
-```bash
-# Check if image exists
-docker pull <image-name>
-
-# Check pod events
-kubectl describe pod <pod-name> -n <namespace>
-```
-
-## Security Considerations
-
-### Production Deployment
-
-1. **Use RBAC**: Create a service account with limited permissions
-2. **Secure kubeconfig**: Don't expose cluster admin credentials
-3. **Network policies**: Restrict pod-to-pod communication
-4. **Image scanning**: Only use trusted container images
-5. **Resource limits**: Set CPU/memory limits on all pods
-
-### Example Service Account
-
-```yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: nimbus-backend
-  namespace: default
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: nimbus-backend-role
-rules:
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["get", "list", "create", "update", "delete"]
-- apiGroups: [""]
-  resources: ["services", "pods"]
-  verbs: ["get", "list", "create", "update", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: nimbus-backend-binding
-subjects:
-- kind: ServiceAccount
-  name: nimbus-backend
-  namespace: default
-roleRef:
-  kind: ClusterRole
-  name: nimbus-backend-role
-  apiGroup: rbac.authorization.k8s.io
-```
-
-## Next Steps
-
-1. ✅ Deploy infrastructure using Terraform
-2. ✅ Run bootstrap script to install k3s and all services
-3. ✅ Configure kubectl access
-4. ✅ Update backend to use real Kubernetes client
-5. ✅ Test service creation
-6. ✅ Implement additional features (scaling, logs, metrics)
-
----
-
-**With real Kubernetes integration, your Nimbus platform becomes a fully functional cloud management system!** 🚀
+Your Nimbus Cloud platform now has full Kubernetes integration with persistent, dynamic data that reflects the actual state of your cluster!
