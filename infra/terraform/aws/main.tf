@@ -94,6 +94,30 @@ resource "aws_security_group" "nimbus" {
     description = "Traefik HTTPS NodePort"
   }
 
+  ingress {
+    from_port   = 30400
+    to_port     = 30400
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Nimbus Cloud UI"
+  }
+
+  ingress {
+    from_port   = 30000
+    to_port     = 32767
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Kubernetes NodePort Range (for deployed services)"
+  }
+
+  ingress {
+    from_port   = 6443
+    to_port     = 6443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "Kubernetes API Server (optional, for remote kubectl)"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
