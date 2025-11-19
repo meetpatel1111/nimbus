@@ -15,6 +15,7 @@ app.use('/', express.static(path.join(__dirname, '../frontend/dist')));
 let vms = [];
 let networks = [];
 let volumes = [];
+let resources = [];
 
 // All 31+ services in Nimbus Cloud
 const ALL_SERVICES = [
@@ -247,6 +248,75 @@ app.post('/api/storage/volumes', (req, res) => {
 
 app.delete('/api/storage/volumes/:id', (req, res) => {
   volumes = volumes.filter(v => v.id !== req.params.id);
+  res.json({ ok: true });
+});
+
+// Resources CRUD endpoints
+app.get('/api/resources', (req, res) => {
+  res.json(resources);
+});
+
+app.post('/api/resources', (req, res) => {
+  const { type, name, config } = req.body;
+  const resource = {
+    id: `res-${Date.now()}`,
+    name,
+    type,
+    status: 'running',
+    resourceGroup: config.resourceGroup || 'default',
+    region: config.region || 'us-east-1',
+    created: new Date().toISOString(),
+    config
+  };
+  resources.push(resource);
+  console.log(`Created resource: ${name} (${type})`);
+  res.json(resource);
+});
+
+app.get('/api/resources/:id', (req, res) => {
+  const resource = resources.find(r => r.id === req.params.id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  res.json(resource);
+});
+
+app.put('/api/resources/:id', (req, res) => {
+  const index = resources.findIndex(r => r.id === req.params.id);
+  if (index === -1) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  resources[index] = { ...resources[index], ...req.body, id: req.params.id };
+  console.log(`Updated resource: ${req.params.id}`);
+  res.json(resources[index]);
+});
+
+app.delete('/api/resources/:id', (req, res) => {
+  const resource = resources.find(r => r.id === req.params.id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  resources = resources.filter(r => r.id !== req.params.id);
+  console.log(`Deleted resource: ${resource.name}`);
+  res.json({ ok: true });
+});
+
+app.post('/api/resources/:id/:action', (req, res) => {
+  const resource = resources.find(r => r.id === req.params.id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Resource not found' });
+  }
+  const action = req.params.action;
+  if (action === 'start') {
+    resource.status = 'running';
+  } else if (action === 'stop') {
+    resource.status = 'stopped';
+  } else if (action === 'restart') {
+    resource.status = 'restarting';
+    setTimeout(() => { resource.status = 'running'; }, 2000);
+  }
+  console.log(`${action} resource: ${resource.name}`);
+  res.json({ ok: true, resource });
   res.json({ ok: true });
 });
 

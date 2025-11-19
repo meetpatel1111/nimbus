@@ -9,6 +9,8 @@ import Storage from './pages/Storage';
 import Networks from './pages/Networks';
 import Deploy from './pages/Deploy';
 import CloudPortal from './pages/CloudPortal';
+import CreateResource from './pages/CreateResource';
+import Resources from './pages/Resources';
 import './styles.css';
 import './styles/azure-portal.css';
 
@@ -18,9 +20,10 @@ function App() {
       <div>
         <nav>
           <Link to="/">Cloud Portal</Link>
+          <Link to="/resources">All Resources</Link>
+          <Link to="/create-resource">+ Create</Link>
           <Link to="/dashboard">Dashboard</Link>
           <Link to="/services">Services</Link>
-          <Link to="/services/create">+ Create Service</Link>
           <Link to="/vms">VMs</Link>
           <Link to="/storage">Storage</Link>
           <Link to="/networks">Networks</Link>
@@ -28,6 +31,8 @@ function App() {
         </nav>
         <Routes>
           <Route path="/" element={<CloudPortal />} />
+          <Route path="/resources" element={<Resources />} />
+          <Route path="/create-resource" element={<CreateResource />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/services" element={<Services />} />
           <Route path="/services/create" element={<CreateService />} />
