@@ -44,15 +44,59 @@ async function getAllServices() {
 }
 
 /**
+ * Get all deployments across all namespaces
+ */
+async function getAllDeployments() {
+  try {
+    const { stdout } = await execAsync('kubectl get deployments -A -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting deployments:', error);
+    return null;
+  }
+}
+
+/**
+ * Get all PVCs across all namespaces
+ */
+async function getAllPVCs() {
+  try {
+    const { stdout } = await execAsync('kubectl get pvc -A -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting PVCs:', error);
+    return null;
+  }
+}
+
+/**
+ * Get all Helm releases
+ */
+async function getAllHelmReleases() {
+  try {
+    const { stdout } = await execAsync('helm list -A -o json');
+    return JSON.parse(stdout);
+  } catch (error) {
+    console.error('Error getting Helm releases:', error);
+    return [];
+  }
+}
+
+/**
  * Create a new deployment (service)
  */
-async function createDeployment(namespace, name, image, replicas = 1, port = 80) {
+async function createDeployment(namespace, name, image, replicas = 1, port = 80, labels = {}) {
   const deployment = {
     apiVersion: 'apps/v1',
     kind: 'Deployment',
     metadata: {
       name: name,
-      namespace: namespace
+      namespace: namespace,
+      labels: {
+        app: name,
+        'nimbus-type': 'resource',
+        ...labels
+      }
     },
     spec: {
       replicas: replicas,
@@ -64,7 +108,8 @@ async function createDeployment(namespace, name, image, replicas = 1, port = 80)
       template: {
         metadata: {
           labels: {
-            app: name
+            app: name,
+            'nimbus-type': 'resource'
           }
         },
         spec: {
@@ -234,6 +279,9 @@ module.exports = {
   checkClusterConnection,
   getAllPods,
   getAllServices,
+  getAllDeployments,
+  getAllPVCs,
+  getAllHelmReleases,
   createDeployment,
   createService,
   deleteDeployment,

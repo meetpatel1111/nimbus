@@ -365,76 +365,369 @@ app.post('/api/services/create', async (req, res) => {
   }
 });
 
-// VMs endpoints
-app.get('/api/vms', (req, res) => {
-  res.json(vms);
+// VMs endpoints - Query from Kubernetes
+app.get('/api/vms', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const deployments = await k8s.getAllDeployments();
+    
+    if (!deployments || !deployments.items) {
+      return res.json([]);
+    }
+    
+    // Filter deployments with label "nimbus-type: vm"
+    const vmDeployments = deployments.items.filter(d => 
+      d.metadata.labels && d.metadata.labels['nimbus-type'] === 'vm'
+    );
+    
+    // Convert K8s deployments to VM format
+    const vms = vmDeployments.map(d => {
+      const spec = d.spec.template.spec.containers[0];
+      const status = d.status.availableReplicas > 0 ? 'running' : 'stopped';
+      
+      return {
+        id: d.metadata.uid,
+        name: d.metadata.name,
+        cpu: d.metadata.labels['nimbus-cpu'] || '2',
+        memory: d.metadata.labels['nimbus-memory'] || '4Gi',
+        disk: d.metadata.labels['nimbus-disk'] || '20Gi',
+        image: d.metadata.labels['nimbus-image'] || spec.image,
+        status: status,
+        ip: d.metadata.labels['nimbus-ip'] || 'Pending',
+        createdAt: d.metadata.creationTimestamp,
+        namespace: d.metadata.namespace
+      };
+    });
+    
+    res.json(vms);
+  } catch (error) {
+    console.error('Error fetching VMs from K8s:', error);
+    res.json([]);
+  }
 });
 
-app.post('/api/vms', (req, res) => {
+app.post('/api/vms', async (req, res) => {
   const { name, cpu, memory, disk, image } = req.body;
-  const vm = {
-    id: `vm-${Date.now()}`,
-    name,
-    cpu,
-    memory,
-    disk,
-    image,
-    status: 'running',
-    ip: `10.0.1.${Math.floor(Math.random() * 200 + 10)}`,
-    createdAt: new Date().toISOString()
-  };
-  vms.push(vm);
-  res.json(vm);
-});
-
-app.delete('/api/vms/:id', (req, res) => {
-  vms = vms.filter(v => v.id !== req.params.id);
-  res.json({ ok: true });
-});
-
-app.post('/api/vms/:id/:action', (req, res) => {
-  const vm = vms.find(v => v.id === req.params.id);
-  if (!vm) {
-    return res.status(404).json({ error: 'VM not found' });
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    const namespace = 'default';
+    
+    // Ensure namespace exists
+    await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
+    
+    // Determine image based on OS selection
+    let containerImage = 'ubuntu:22.04';
+    if (image && image.includes('ubuntu')) {
+      containerImage = image.includes('20.04') ? 'ubuntu:20.04' : 'ubuntu:22.04';
+    } else if (image && image.includes('centos')) {
+      containerImage = 'centos:8';
+    } else if (image && image.includes('debian')) {
+      containerImage = 'debian:11';
+    }
+    
+    // Create deployment with labels for tracking
+    const deployment = {
+      apiVersion: 'apps/v1',
+      kind: 'Deployment',
+      metadata: {
+        name: name,
+        namespace: namespace,
+        labels: {
+          'nimbus-type': 'vm',
+          'nimbus-cpu': cpu || '2',
+          'nimbus-memory': memory || '4Gi',
+          'nimbus-disk': disk || '20Gi',
+          'nimbus-image': image || 'ubuntu-22.04',
+          'app': name
+        }
+      },
+      spec: {
+        replicas: 1,
+        selector: {
+          matchLabels: {
+            app: name
+          }
+        },
+        template: {
+          metadata: {
+            labels: {
+              app: name,
+              'nimbus-type': 'vm'
+            }
+          },
+          spec: {
+            containers: [{
+              name: name,
+              image: containerImage,
+              command: ['/bin/bash', '-c', 'sleep infinity'],
+              resources: {
+                requests: {
+                  memory: memory || '4Gi',
+                  cpu: cpu || '2'
+                }
+              }
+            }]
+          }
+        }
+      }
+    };
+    
+    const yaml = JSON.stringify(deployment);
+    await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    
+    console.log(`✅ Created VM: ${name}`);
+    
+    res.json({
+      id: `vm-${Date.now()}`,
+      name,
+      cpu,
+      memory,
+      disk,
+      image,
+      status: 'running',
+      ip: 'Pending',
+      createdAt: new Date().toISOString(),
+      namespace
+    });
+  } catch (error) {
+    console.error('Error creating VM:', error);
+    res.status(500).json({ error: error.message });
   }
-  const action = req.params.action;
-  if (action === 'start') {
-    vm.status = 'running';
-  } else if (action === 'stop') {
-    vm.status = 'stopped';
+});
+
+app.delete('/api/vms/:id', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const deployments = await k8s.getAllDeployments();
+    
+    // Find deployment by ID
+    const deployment = deployments?.items?.find(d => d.metadata.uid === req.params.id);
+    
+    if (deployment) {
+      await k8s.deleteDeployment(deployment.metadata.namespace, deployment.metadata.name);
+      console.log(`✅ Deleted VM: ${deployment.metadata.name}`);
+    }
+    
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting VM:', error);
+    res.status(500).json({ error: error.message });
   }
-  res.json({ ok: true, vm });
 });
 
-// Storage endpoints
-app.get('/api/storage/volumes', (req, res) => {
-  res.json(volumes);
+app.post('/api/vms/:id/:action', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const deployments = await k8s.getAllDeployments();
+    const deployment = deployments?.items?.find(d => d.metadata.uid === req.params.id);
+    
+    if (!deployment) {
+      return res.status(404).json({ error: 'VM not found' });
+    }
+    
+    const action = req.params.action;
+    const namespace = deployment.metadata.namespace;
+    const name = deployment.metadata.name;
+    
+    if (action === 'start') {
+      await execAsync(`kubectl scale deployment ${name} -n ${namespace} --replicas=1`);
+    } else if (action === 'stop') {
+      await execAsync(`kubectl scale deployment ${name} -n ${namespace} --replicas=0`);
+    }
+    
+    console.log(`✅ ${action} VM: ${name}`);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error performing VM action:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.post('/api/storage/volumes', (req, res) => {
+// Storage endpoints - Query from Kubernetes PVCs
+app.get('/api/storage/volumes', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const pvcs = await k8s.getAllPVCs();
+    
+    if (!pvcs || !pvcs.items) {
+      return res.json([]);
+    }
+    
+    // Filter PVCs with label "nimbus-type: volume"
+    const volumePVCs = pvcs.items.filter(pvc => 
+      pvc.metadata.labels && pvc.metadata.labels['nimbus-type'] === 'volume'
+    );
+    
+    // Convert K8s PVCs to volume format
+    const volumes = volumePVCs.map(pvc => {
+      const size = pvc.spec.resources.requests.storage;
+      const status = pvc.status.phase === 'Bound' ? 'available' : 'pending';
+      
+      return {
+        id: pvc.metadata.uid,
+        name: pvc.metadata.name,
+        size: size,
+        type: pvc.metadata.labels['nimbus-storage-type'] || 'longhorn',
+        used: '0 GB',
+        available: size,
+        status: status,
+        attachedTo: pvc.metadata.labels['nimbus-attached-to'] || null,
+        namespace: pvc.metadata.namespace,
+        createdAt: pvc.metadata.creationTimestamp
+      };
+    });
+    
+    res.json(volumes);
+  } catch (error) {
+    console.error('Error fetching volumes from K8s:', error);
+    res.json([]);
+  }
+});
+
+app.post('/api/storage/volumes', async (req, res) => {
   const { name, size, type } = req.body;
-  const volume = {
-    id: `vol-${Date.now()}`,
-    name,
-    size,
-    type,
-    used: '0 GB',
-    available: size,
-    status: 'available',
-    attachedTo: null
-  };
-  volumes.push(volume);
-  res.json(volume);
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    const namespace = 'default';
+    
+    // Ensure namespace exists
+    await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
+    
+    // Create PVC with labels for tracking
+    const pvc = {
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: {
+        name: name,
+        namespace: namespace,
+        labels: {
+          'nimbus-type': 'volume',
+          'nimbus-storage-type': type || 'longhorn'
+        }
+      },
+      spec: {
+        accessModes: ['ReadWriteOnce'],
+        storageClassName: type || 'longhorn',
+        resources: {
+          requests: {
+            storage: size || '10Gi'
+          }
+        }
+      }
+    };
+    
+    const yaml = JSON.stringify(pvc);
+    await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    
+    console.log(`✅ Created volume: ${name}`);
+    
+    res.json({
+      id: `vol-${Date.now()}`,
+      name,
+      size,
+      type,
+      used: '0 GB',
+      available: size,
+      status: 'available',
+      attachedTo: null,
+      namespace
+    });
+  } catch (error) {
+    console.error('Error creating volume:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.delete('/api/storage/volumes/:id', (req, res) => {
-  volumes = volumes.filter(v => v.id !== req.params.id);
-  res.json({ ok: true });
+app.delete('/api/storage/volumes/:id', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const pvcs = await k8s.getAllPVCs();
+    
+    // Find PVC by ID
+    const pvc = pvcs?.items?.find(p => p.metadata.uid === req.params.id);
+    
+    if (pvc) {
+      await execAsync(`kubectl delete pvc ${pvc.metadata.name} -n ${pvc.metadata.namespace}`);
+      console.log(`✅ Deleted volume: ${pvc.metadata.name}`);
+    }
+    
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting volume:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// Resources CRUD endpoints
-app.get('/api/resources', (req, res) => {
-  res.json(resources);
+// Resources CRUD endpoints - Query from Kubernetes
+app.get('/api/resources', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Get Helm releases (databases, functions, etc.)
+    const helmReleases = await k8s.getAllHelmReleases();
+    const deployments = await k8s.getAllDeployments();
+    const pvcs = await k8s.getAllPVCs();
+    
+    const resources = [];
+    
+    // Add Helm releases as resources
+    if (helmReleases && helmReleases.length > 0) {
+      helmReleases.forEach(release => {
+        // Skip system releases
+        if (['nimbus', 'traefik', 'longhorn'].includes(release.name)) return;
+        
+        let type = 'database';
+        if (release.chart && release.chart.includes('postgresql')) type = 'database';
+        else if (release.chart && release.chart.includes('mongodb')) type = 'database';
+        else if (release.chart && release.chart.includes('redis')) type = 'database';
+        else if (release.chart && release.chart.includes('minio')) type = 'storage';
+        else type = 'function';
+        
+        resources.push({
+          id: `helm-${release.name}-${release.namespace}`,
+          name: release.name,
+          type: type,
+          status: release.status === 'deployed' ? 'running' : 'stopped',
+          resourceGroup: release.namespace,
+          region: 'local',
+          created: release.updated,
+          config: {
+            resourceGroup: release.namespace,
+            chart: release.chart,
+            version: release.app_version
+          }
+        });
+      });
+    }
+    
+    // Add deployments with nimbus-type: resource label
+    if (deployments && deployments.items) {
+      deployments.items
+        .filter(d => d.metadata.labels && d.metadata.labels['nimbus-type'] === 'resource')
+        .forEach(d => {
+          resources.push({
+            id: d.metadata.uid,
+            name: d.metadata.name,
+            type: d.metadata.labels['nimbus-resource-type'] || 'function',
+            status: d.status.availableReplicas > 0 ? 'running' : 'stopped',
+            resourceGroup: d.metadata.namespace,
+            region: 'local',
+            created: d.metadata.creationTimestamp,
+            config: {
+              resourceGroup: d.metadata.namespace,
+              image: d.spec.template.spec.containers[0].image
+            }
+          });
+        });
+    }
+    
+    res.json(resources);
+  } catch (error) {
+    console.error('Error fetching resources from K8s:', error);
+    res.json([]);
+  }
 });
 
 // Sync resources from Kubernetes
@@ -525,7 +818,10 @@ app.post('/api/resources', async (req, res) => {
         const runtime = config.runtime || 'Node.js 18';
         const image = runtime.includes('Node') ? 'node:18-alpine' : 
                      runtime.includes('Python') ? 'python:3.11-alpine' : 'node:18-alpine';
-        await k8s.createDeployment(namespace, name, image, 1, 8080);
+        await k8s.createDeployment(namespace, name, image, 1, 8080, {
+          'nimbus-resource-type': 'function',
+          'nimbus-runtime': runtime
+        });
         await k8s.createService(namespace, name, 8080, 8080, 'ClusterIP');
         break;
         
@@ -538,7 +834,10 @@ app.post('/api/resources', async (req, res) => {
       case 'vm':
         // Deploy VM-like pod
         const vmImage = config.os?.includes('Ubuntu') ? 'ubuntu:22.04' : 'ubuntu:22.04';
-        await k8s.createDeployment(namespace, name, vmImage, 1, 22);
+        await k8s.createDeployment(namespace, name, vmImage, 1, 22, {
+          'nimbus-resource-type': 'vm',
+          'nimbus-os': config.os || 'Ubuntu 22.04'
+        });
         break;
         
       case 'kubernetes':
