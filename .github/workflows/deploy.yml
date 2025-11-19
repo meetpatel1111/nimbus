@@ -14,6 +14,16 @@ on:
           - aws
           - azure
         default: aws
+      terraform_action:
+        description: 'Terraform Action'
+        required: false
+        type: choice
+        options:
+          - apply
+          - destroy
+          - refresh
+          - plan
+        default: apply
       instance_name:
         description: 'Instance/VM Name'
         required: false
@@ -222,9 +232,28 @@ jobs:
             -out=tfplan
 
       - name: Terraform Apply
+        if: github.event.inputs.terraform_action == 'apply'
         run: |
           cd infra/terraform/aws
           terraform apply -auto-approve tfplan
+      
+      - name: Terraform Destroy
+        if: github.event.inputs.terraform_action == 'destroy'
+        run: |
+          cd infra/terraform/aws
+          terraform destroy -auto-approve \
+            -var="instance_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="aws_region=${{ github.event.inputs.region || 'us-east-1' }}" \
+            -var="key_pair_name=nimbus"
+      
+      - name: Terraform Refresh
+        if: github.event.inputs.terraform_action == 'refresh'
+        run: |
+          cd infra/terraform/aws
+          terraform refresh \
+            -var="instance_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="aws_region=${{ github.event.inputs.region || 'us-east-1' }}" \
+            -var="key_pair_name=nimbus"
       
       - name: Install K3s and Helm (minimal setup for Nimbus Cloud)
         if: github.event.inputs.run_bootstrap == 'false'
@@ -351,6 +380,7 @@ jobs:
             -out=tfplan
 
       - name: Terraform Apply
+        if: github.event.inputs.terraform_action == 'apply'
         env:
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -359,6 +389,34 @@ jobs:
         run: |
           cd infra/terraform/azure
           terraform apply -auto-approve tfplan
+      
+      - name: Terraform Destroy
+        if: github.event.inputs.terraform_action == 'destroy'
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          cd infra/terraform/azure
+          terraform destroy -auto-approve \
+            -var="vm_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="location=${{ github.event.inputs.region || 'eastus' }}" \
+            -var="ssh_public_key=$(cat ~/.ssh/id_rsa.pub)"
+      
+      - name: Terraform Refresh
+        if: github.event.inputs.terraform_action == 'refresh'
+        env:
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+        run: |
+          cd infra/terraform/azure
+          terraform refresh \
+            -var="vm_name=${{ github.event.inputs.instance_name || 'nimbus-cloud' }}" \
+            -var="location=${{ github.event.inputs.region || 'eastus' }}" \
+            -var="ssh_public_key=$(cat ~/.ssh/id_rsa.pub)"
 
       - name: Get Terraform Outputs
         id: terraform-output
