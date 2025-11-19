@@ -35,6 +35,9 @@ cd /tmp
 git clone https://github.com/meetpatel1111/nimbus.git || (cd nimbus && git pull)
 cd nimbus
 
+# Set KUBECONFIG for helm to use K3s config
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
 helm upgrade --install nimbus ./helm/nimbus \
   -n nimbus \
   --set backend.image="$BACKEND_IMAGE" \

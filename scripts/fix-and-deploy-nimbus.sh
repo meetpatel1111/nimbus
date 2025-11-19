@@ -68,7 +68,10 @@ FRONTEND_IMAGE="${FRONTEND_IMAGE:-meetpatel1111/nimbus-platform:frontend-latest}
 echo "   🐳 Backend:  $BACKEND_IMAGE"
 echo "   🐳 Frontend: $FRONTEND_IMAGE"
 
-sudo helm upgrade --install nimbus ./helm/nimbus \
+# Set KUBECONFIG for helm to use K3s config
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+sudo -E helm upgrade --install nimbus ./helm/nimbus \
   -n nimbus \
   --set backend.image="$BACKEND_IMAGE" \
   --set frontend.image="$FRONTEND_IMAGE" \
