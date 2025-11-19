@@ -26,9 +26,9 @@ on:
         description: 'Run bootstrap script after deployment'
         required: false
         type: boolean
-        default: true
+        default: false
       deploy_app:
-        description: 'Deploy application to cluster'
+        description: 'Deploy Nimbus Cloud application to cluster'
         required: false
         type: boolean
         default: true
@@ -225,6 +225,60 @@ jobs:
         run: |
           cd infra/terraform/aws
           terraform apply -auto-approve tfplan
+      
+      - name: Install K3s and Helm (minimal setup for Nimbus Cloud)
+        if: github.event.inputs.run_bootstrap == 'false'
+        run: |
+          INSTANCE_IP=$(cd infra/terraform/aws && terraform output -raw public_ip)
+          
+          echo "Installing K3s and Helm on $INSTANCE_IP..."
+          ssh -o StrictHostKeyChecking=no ubuntu@$INSTANCE_IP << 'EOF'
+            # Wait for cloud-init to finish
+            while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
+              echo "Waiting for cloud-init..."
+              sleep 2
+            done
+            
+            # Install K3s
+            curl -sfL https://get.k3s.io | sh -
+            
+            # Wait for K3s to be ready
+            sudo kubectl wait --for=condition=Ready nodes --all --timeout=300s
+            
+            # Install Helm
+            curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+            
+            # Add essential Helm repos for service deployment
+            helm repo add bitnami https://charts.bitnami.com/bitnami
+            helm repo add grafana https://grafana.github.io/helm-charts
+            helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+            helm repo add harbor https://helm.goharbor.io
+            helm repo add hashicorp https://helm.releases.hashicorp.com
+            helm repo add gitea-charts https://dl.gitea.io/charts/
+            helm repo add minio https://charts.min.io/
+            helm repo add traefik https://helm.traefik.io/traefik
+            helm repo add longhorn https://charts.longhorn.io
+            helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+            helm repo add openfaas https://openfaas.github.io/faas-netes/
+            helm repo add jetstack https://charts.jetstack.io
+            helm repo add kyverno https://kyverno.github.io/kyverno/
+            helm repo add jaegertracing https://jaegertracing.github.io/helm-charts
+            helm repo add vmware-tanzu https://vmware-tanzu.github.io/helm-charts
+            helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+            helm repo add istio https://istio-release.storage.googleapis.com/charts
+            helm repo add argo https://argoproj.github.io/argo-helm
+            helm repo add drone https://charts.drone.io
+            helm repo update
+            
+            # Create namespaces for Nimbus Cloud
+            sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
+            sudo kubectl create namespace apps --dry-run=client -o yaml | sudo kubectl apply -f -
+            sudo kubectl create namespace monitoring --dry-run=client -o yaml | sudo kubectl apply -f -
+            sudo kubectl create namespace ci --dry-run=client -o yaml | sudo kubectl apply -f -
+            sudo kubectl create namespace storage --dry-run=client -o yaml | sudo kubectl apply -f -
+            
+            echo "✅ K3s and Helm ready for Nimbus Cloud!"
+          EOF
 
       - name: Get Terraform Outputs
         id: terraform-output
