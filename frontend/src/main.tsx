@@ -11,6 +11,7 @@ import Deploy from './pages/Deploy';
 import CloudPortal from './pages/CloudPortal';
 import CreateResource from './pages/CreateResource';
 import Resources from './pages/Resources';
+import ServiceDeployment from './pages/ServiceDeployment';
 import './styles.css';
 import './styles/azure-portal.css';
 
@@ -33,6 +34,7 @@ function App() {
           <Route path="/" element={<CloudPortal />} />
           <Route path="/resources" element={<Resources />} />
           <Route path="/create-resource" element={<CreateResource />} />
+          <Route path="/deploy-service" element={<ServiceDeployment />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/services" element={<Services />} />
           <Route path="/services/create" element={<CreateService />} />

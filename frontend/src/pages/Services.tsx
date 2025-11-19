@@ -57,6 +57,17 @@ export default function Services() {
     }
   };
 
+  const deleteService = async (service: Service) => {
+    if (!confirm(`Delete ${service.name}? This will remove it from Kubernetes.`)) return;
+    try {
+      await axios.delete(`/api/services/deployed/${service.name}/${service.namespace}`);
+      alert('Service deleted successfully');
+      loadServices();
+    } catch (err: any) {
+      alert('Failed to delete service: ' + err.message);
+    }
+  };
+
   const filteredServices = selectedCategory === 'all' 
     ? services 
     : services.filter(s => s.category === selectedCategory);
@@ -69,6 +80,13 @@ export default function Services() {
       <div className="page-header">
         <h1>🌥 Nimbus Cloud Services</h1>
         <p>Manage 31+ enterprise-grade services running in your cloud platform</p>
+        <button 
+          className="btn btn-primary" 
+          onClick={() => window.location.href = '/deploy-service'}
+          style={{ marginTop: '15px' }}
+        >
+          + Deploy New Service
+        </button>
       </div>
 
       <div className="stats-grid">
@@ -137,7 +155,13 @@ export default function Services() {
                     className="btn btn-secondary btn-sm" 
                     onClick={() => restartService(service.id)}
                   >
-                    Restart
+                    🔄 Restart
+                  </button>
+                  <button 
+                    className="btn btn-danger btn-sm" 
+                    onClick={() => deleteService(service)}
+                  >
+                    🗑️ Delete
                   </button>
                   {service.endpoint && (
                     <a 
@@ -146,7 +170,7 @@ export default function Services() {
                       rel="noopener noreferrer"
                       className="btn btn-primary btn-sm"
                     >
-                      Open
+                      🔗 Open
                     </a>
                   )}
                 </div>

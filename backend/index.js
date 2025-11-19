@@ -135,6 +135,100 @@ app.post('/api/services/:id/restart', (req, res) => {
   res.json({ ok: true, message: `Service ${service.name} restarted` });
 });
 
+// Deploy a service using Helm
+app.post('/api/services/deploy', async (req, res) => {
+  const { serviceId, name, helmChart, namespace, values } = req.body;
+  
+  if (!name || !helmChart || !namespace) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  console.log(`🚀 Deploying ${serviceId}: ${name} to namespace ${namespace}`);
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Ensure namespace exists
+    await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
+    
+    // Build Helm values
+    const helmValues = {};
+    for (const [key, val] of Object.entries(values)) {
+      if (val !== undefined && val !== null) {
+        helmValues[key] = val;
+      }
+    }
+    
+    // Install via Helm
+    const result = await k8s.installHelmChart(name, helmChart, namespace, helmValues);
+    
+    if (result.success) {
+      console.log(`✅ Successfully deployed ${name}`);
+      res.json({ 
+        success: true, 
+        message: `${serviceId} deployed successfully`,
+        name,
+        namespace,
+        helmChart
+      });
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    console.error(`❌ Failed to deploy ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a deployed service
+app.delete('/api/services/deployed/:name/:namespace', async (req, res) => {
+  const { name, namespace } = req.params;
+  
+  console.log(`🗑️ Deleting service: ${name} from namespace ${namespace}`);
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Uninstall Helm release
+    const result = await k8s.uninstallHelmChart(name, namespace);
+    
+    if (result.success) {
+      console.log(`✅ Successfully deleted ${name}`);
+      res.json({ success: true, message: `${name} deleted successfully` });
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    console.error(`❌ Failed to delete ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a deployed service
+app.put('/api/services/deployed/:name/:namespace', async (req, res) => {
+  const { name, namespace } = req.params;
+  const { helmChart, values } = req.body;
+  
+  console.log(`🔄 Updating service: ${name} in namespace ${namespace}`);
+  
+  try {
+    const k8s = require('./kubernetes-client');
+    
+    // Update via Helm upgrade
+    const result = await k8s.installHelmChart(name, helmChart, namespace, values);
+    
+    if (result.success) {
+      console.log(`✅ Successfully updated ${name}`);
+      res.json({ success: true, message: `${name} updated successfully` });
+    } else {
+      throw new Error(result.error);
+    }
+  } catch (error) {
+    console.error(`❌ Failed to update ${name}:`, error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Create a new custom service
 app.post('/api/services/create', async (req, res) => {
   const { name, namespace, image, replicas, port, serviceType, category } = req.body;
