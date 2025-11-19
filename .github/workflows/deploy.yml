@@ -348,13 +348,16 @@ jobs:
           mkdir -p ~/.ssh
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
+          
+      - name: Add host to known_hosts
+        run: |
+          ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts || echo "Failed to add host to known_hosts, will try with StrictHostKeyChecking=no"
 
       - name: Wait for instance to be ready
         run: |
           echo "Waiting for instance to be ready..."
           for i in {1..30}; do
-            if ssh -o ConnectTimeout=5 ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} "echo 'Instance ready'"; then
+            if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} "echo 'Instance ready'"; then
               echo "Instance is ready!"
               break
             fi
@@ -364,13 +367,13 @@ jobs:
 
       - name: Copy bootstrap script
         run: |
-          scp bootstrap/full-mini-cloud-bootstrap-fixed.sh \
+          scp -o StrictHostKeyChecking=no bootstrap/full-mini-cloud-bootstrap-fixed.sh \
             ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
 
       - name: Run bootstrap script
         continue-on-error: true
         run: |
-          ssh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
+          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
             "sudo bash ~/full-mini-cloud-bootstrap-fixed.sh" | tee bootstrap.log
 
       - name: Upload bootstrap log
@@ -383,7 +386,7 @@ jobs:
       - name: Retrieve secrets
         continue-on-error: true
         run: |
-          ssh ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
+          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} \
             "sudo cat /root/.mini-cloud-secrets" > mini-cloud-secrets.txt 2>/dev/null || \
             echo "Secrets file not found - bootstrap may still be running" > mini-cloud-secrets.txt
 
@@ -437,7 +440,7 @@ jobs:
           ssh-keyscan -H ${{ steps.get-ip.outputs.ip }} >> ~/.ssh/known_hosts
           
           # Get kubeconfig from remote server
-          scp ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:/etc/rancher/k3s/k3s.yaml ~/.kube/config
+          scp -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:/etc/rancher/k3s/k3s.yaml ~/.kube/config
           
           # Replace localhost with actual IP
           sed -i "s/127.0.0.1/${{ steps.get-ip.outputs.ip }}/g" ~/.kube/config
