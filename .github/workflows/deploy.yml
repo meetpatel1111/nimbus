@@ -514,9 +514,8 @@ jobs:
             # Create namespace
             sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
             
-            # Deploy with Helm using kubeconfig flag
-            helm upgrade --install nimbus ~/nimbus \
-              --kubeconfig /etc/rancher/k3s/k3s.yaml \
+            # Deploy with Helm (need sudo to access kubeconfig)
+            sudo helm upgrade --install nimbus ~/nimbus \
               -n nimbus \
               --set backend.image="${{ needs.build-docker-images.outputs.backend_image }}" \
               --set frontend.image="${{ needs.build-docker-images.outputs.frontend_image }}" \
@@ -525,13 +524,13 @@ jobs:
             
             # Verify deployment
             echo "=== Deployment Status ==="
-            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get all -n nimbus
+            sudo kubectl get all -n nimbus
             
             echo "=== Pod Status ==="
-            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get pods -n nimbus
+            sudo kubectl get pods -n nimbus
             
             echo "=== Service Endpoints ==="
-            kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml get svc -n nimbus
+            sudo kubectl get svc -n nimbus
           ENDSSH
 
   # Job 7: Deployment Summary
