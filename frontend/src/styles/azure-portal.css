@@ -798,3 +798,17 @@ input:checked + .toggle-slider:before {
 .btn-danger:hover {
   background: #a52a2e;
 }
+
+
+/* Kubernetes Status */
+.k8s-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.resources-actions {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}

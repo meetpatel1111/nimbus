@@ -256,20 +256,129 @@ app.get('/api/resources', (req, res) => {
   res.json(resources);
 });
 
-app.post('/api/resources', (req, res) => {
+// Sync resources from Kubernetes
+app.get('/api/resources/sync', async (req, res) => {
+  try {
+    const k8s = require('./kubernetes-client');
+    const clusterStatus = await k8s.checkClusterConnection();
+    
+    if (!clusterStatus.connected) {
+      return res.json({ 
+        synced: false, 
+        message: 'Kubernetes cluster not available',
+        resources: resources 
+      });
+    }
+    
+    // Get all deployments and services from K8s
+    const pods = await k8s.getAllPods();
+    const services = await k8s.getAllServices();
+    
+    console.log(`✅ Synced with Kubernetes cluster`);
+    res.json({ 
+      synced: true, 
+      clusterInfo: clusterStatus.info,
+      resources: resources,
+      k8sPods: pods?.items?.length || 0,
+      k8sServices: services?.items?.length || 0
+    });
+  } catch (error) {
+    res.json({ 
+      synced: false, 
+      error: error.message,
+      resources: resources 
+    });
+  }
+});
+
+app.post('/api/resources', async (req, res) => {
   const { type, name, config } = req.body;
   const resource = {
     id: `res-${Date.now()}`,
     name,
     type,
-    status: 'running',
+    status: 'creating',
     resourceGroup: config.resourceGroup || 'default',
     region: config.region || 'us-east-1',
     created: new Date().toISOString(),
     config
   };
   resources.push(resource);
-  console.log(`Created resource: ${name} (${type})`);
+  console.log(`Creating resource: ${name} (${type})`);
+  
+  // Deploy to Kubernetes based on resource type
+  try {
+    const k8s = require('./kubernetes-client');
+    const namespace = config.resourceGroup || 'default';
+    
+    // Ensure namespace exists
+    await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
+    
+    switch(type) {
+      case 'database':
+        // Deploy database using Helm
+        const dbType = config.type?.toLowerCase() || 'postgresql';
+        const helmValues = {
+          'auth.password': 'changeme',
+          'primary.persistence.size': `${config.storage || 20}Gi`,
+          'primary.resources.requests.memory': '256Mi'
+        };
+        
+        if (dbType === 'postgresql') {
+          await k8s.installHelmChart(name, 'bitnami/postgresql', namespace, helmValues);
+        } else if (dbType === 'mongodb') {
+          await k8s.installHelmChart(name, 'bitnami/mongodb', namespace, {
+            'auth.rootPassword': 'changeme',
+            'persistence.size': `${config.storage || 20}Gi`
+          });
+        } else if (dbType === 'redis') {
+          await k8s.installHelmChart(name, 'bitnami/redis', namespace, {
+            'auth.password': 'changeme',
+            'master.persistence.size': `${config.storage || 10}Gi`
+          });
+        }
+        break;
+        
+      case 'function':
+        // Deploy serverless function
+        const runtime = config.runtime || 'Node.js 18';
+        const image = runtime.includes('Node') ? 'node:18-alpine' : 
+                     runtime.includes('Python') ? 'python:3.11-alpine' : 'node:18-alpine';
+        await k8s.createDeployment(namespace, name, image, 1, 8080);
+        await k8s.createService(namespace, name, 8080, 8080, 'ClusterIP');
+        break;
+        
+      case 'storage':
+        // Create PVC for storage
+        const size = `${config.size || 100}Gi`;
+        await k8s.createPVC(namespace, name, size);
+        break;
+        
+      case 'vm':
+        // Deploy VM-like pod
+        const vmImage = config.os?.includes('Ubuntu') ? 'ubuntu:22.04' : 'ubuntu:22.04';
+        await k8s.createDeployment(namespace, name, vmImage, 1, 22);
+        break;
+        
+      case 'kubernetes':
+        // For K8s cluster, just create a namespace
+        await execAsync(`kubectl create namespace ${name}`).catch(() => {});
+        break;
+        
+      case 'loadbalancer':
+        // Create a service of type LoadBalancer
+        await k8s.createService(namespace, name, 80, 80, 'LoadBalancer');
+        break;
+    }
+    
+    resource.status = 'running';
+    console.log(`✅ Successfully deployed ${name} to Kubernetes`);
+  } catch (error) {
+    console.error(`❌ Failed to deploy ${name}:`, error.message);
+    resource.status = 'failed';
+    resource.error = error.message;
+  }
+  
   res.json(resource);
 });
 
@@ -291,31 +400,77 @@ app.put('/api/resources/:id', (req, res) => {
   res.json(resources[index]);
 });
 
-app.delete('/api/resources/:id', (req, res) => {
+app.delete('/api/resources/:id', async (req, res) => {
   const resource = resources.find(r => r.id === req.params.id);
   if (!resource) {
     return res.status(404).json({ error: 'Resource not found' });
   }
+  
+  // Delete from Kubernetes
+  try {
+    const k8s = require('./kubernetes-client');
+    const namespace = resource.config.resourceGroup || 'default';
+    
+    switch(resource.type) {
+      case 'database':
+      case 'function':
+        // Uninstall Helm chart or delete deployment
+        await k8s.uninstallHelmChart(resource.name, namespace).catch(() => {});
+        await k8s.deleteDeployment(namespace, resource.name).catch(() => {});
+        await k8s.deleteService(namespace, resource.name).catch(() => {});
+        break;
+        
+      case 'storage':
+        // Delete PVC
+        await execAsync(`kubectl delete pvc ${resource.name} -n ${namespace}`).catch(() => {});
+        break;
+        
+      case 'vm':
+        await k8s.deleteDeployment(namespace, resource.name).catch(() => {});
+        break;
+        
+      case 'loadbalancer':
+        await k8s.deleteService(namespace, resource.name).catch(() => {});
+        break;
+    }
+    
+    console.log(`✅ Deleted ${resource.name} from Kubernetes`);
+  } catch (error) {
+    console.error(`❌ Failed to delete ${resource.name}:`, error.message);
+  }
+  
   resources = resources.filter(r => r.id !== req.params.id);
   console.log(`Deleted resource: ${resource.name}`);
   res.json({ ok: true });
 });
 
-app.post('/api/resources/:id/:action', (req, res) => {
+app.post('/api/resources/:id/:action', async (req, res) => {
   const resource = resources.find(r => r.id === req.params.id);
   if (!resource) {
     return res.status(404).json({ error: 'Resource not found' });
   }
+  
   const action = req.params.action;
-  if (action === 'start') {
-    resource.status = 'running';
-  } else if (action === 'stop') {
-    resource.status = 'stopped';
-  } else if (action === 'restart') {
-    resource.status = 'restarting';
-    setTimeout(() => { resource.status = 'running'; }, 2000);
+  const k8s = require('./kubernetes-client');
+  const namespace = resource.config.resourceGroup || 'default';
+  
+  try {
+    if (action === 'restart') {
+      await k8s.restartDeployment(namespace, resource.name);
+      resource.status = 'restarting';
+      setTimeout(() => { resource.status = 'running'; }, 5000);
+    } else if (action === 'stop') {
+      await execAsync(`kubectl scale deployment ${resource.name} -n ${namespace} --replicas=0`);
+      resource.status = 'stopped';
+    } else if (action === 'start') {
+      await execAsync(`kubectl scale deployment ${resource.name} -n ${namespace} --replicas=1`);
+      resource.status = 'running';
+    }
+    console.log(`✅ ${action} resource: ${resource.name}`);
+  } catch (error) {
+    console.error(`❌ Failed to ${action} ${resource.name}:`, error.message);
   }
-  console.log(`${action} resource: ${resource.name}`);
+  
   res.json({ ok: true, resource });
   res.json({ ok: true });
 });

@@ -20,10 +20,21 @@ export default function Resources() {
   const [filterType, setFilterType] = useState('all');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [resourceToDelete, setResourceToDelete] = useState<Resource | null>(null);
+  const [k8sStatus, setK8sStatus] = useState<any>(null);
 
   useEffect(() => {
     loadResources();
+    syncWithK8s();
   }, []);
+
+  const syncWithK8s = async () => {
+    try {
+      const res = await axios.get('/api/resources/sync');
+      setK8sStatus(res.data);
+    } catch (err) {
+      console.error('Failed to sync with K8s:', err);
+    }
+  };
 
   const loadResources = async () => {
     try {
@@ -84,6 +95,22 @@ export default function Resources() {
         <div className="resources-header">
           <h1>All Resources</h1>
           <div className="resources-actions">
+            {k8sStatus && (
+              <div className="k8s-status">
+                {k8sStatus.synced ? (
+                  <span className="status-badge running">
+                    ☸️ K8s Connected ({k8sStatus.k8sPods} pods)
+                  </span>
+                ) : (
+                  <span className="status-badge stopped">
+                    ☸️ K8s Offline
+                  </span>
+                )}
+              </div>
+            )}
+            <button className="btn btn-secondary" onClick={syncWithK8s}>
+              🔄 Sync
+            </button>
             <button className="btn btn-primary" onClick={() => navigate('/create-resource')}>
               + Create Resource
             </button>
