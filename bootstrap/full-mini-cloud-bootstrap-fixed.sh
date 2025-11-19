@@ -266,7 +266,84 @@ helm upgrade --install jenkins bitnami/jenkins --namespace ci \
   --set persistence.size=5Gi \
   --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Jenkins installation failed, continuing..."
 
-echo "STEP 20: Sample demo app (nginx) to verify cluster"
+echo "STEP 20: Harbor (Container Registry)"
+helm repo add harbor https://helm.goharbor.io || true
+helm repo update
+helm upgrade --install harbor harbor/harbor --namespace apps \
+  --set expose.type=nodePort \
+  --set expose.tls.enabled=false \
+  --set persistence.enabled=true \
+  --set persistence.persistentVolumeClaim.registry.size=10Gi \
+  --set persistence.persistentVolumeClaim.chartmuseum.size=5Gi \
+  --set harborAdminPassword=Harbor12345 \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Harbor installation failed, continuing..."
+
+echo "STEP 21: ArgoCD (GitOps)"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml || echo "ArgoCD installation failed, continuing..."
+
+echo "STEP 22: Istio (Service Mesh)"
+helm repo add istio https://istio-release.storage.googleapis.com/charts || true
+helm repo update
+kubectl create namespace istio-system --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install istio-base istio/base -n istio-system --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Istio base installation failed, continuing..."
+helm upgrade --install istiod istio/istiod -n istio-system --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Istiod installation failed, continuing..."
+
+echo "STEP 23: Cert-Manager (SSL Certificates)"
+helm repo add jetstack https://charts.jetstack.io || true
+helm repo update
+kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manager \
+  --set installCRDs=true \
+  --set resources.requests.memory="128Mi" \
+  --set resources.requests.cpu="100m" \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Cert-Manager installation failed, continuing..."
+
+echo "STEP 24: Kyverno (Policy Engine)"
+helm repo add kyverno https://kyverno.github.io/kyverno/ || true
+helm repo update
+kubectl create namespace kyverno --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install kyverno kyverno/kyverno --namespace kyverno \
+  --set replicaCount=1 \
+  --set resources.requests.memory="256Mi" \
+  --set resources.requests.cpu="200m" \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Kyverno installation failed, continuing..."
+
+echo "STEP 25: Jaeger (Distributed Tracing)"
+helm repo add jaegertracing https://jaegertracing.github.io/helm-charts || true
+helm repo update
+kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install jaeger jaegertracing/jaeger --namespace observability \
+  --set provisionDataStore.cassandra=false \
+  --set allInOne.enabled=true \
+  --set storage.type=memory \
+  --set allInOne.resources.requests.memory="256Mi" \
+  --set allInOne.resources.requests.cpu="200m" \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Jaeger installation failed, continuing..."
+
+echo "STEP 26: Kube-State-Metrics (Cluster Metrics)"
+helm upgrade --install kube-state-metrics prometheus-community/kube-state-metrics --namespace monitoring \
+  --set resources.requests.memory="64Mi" \
+  --set resources.requests.cpu="50m" \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Kube-State-Metrics installation failed, continuing..."
+
+echo "STEP 27: Metrics Server (Resource Metrics)"
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml || echo "Metrics Server already installed"
+
+echo "STEP 28: Nginx Ingress Controller (Alternative Ingress)"
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx || true
+helm repo update
+kubectl create namespace ingress-nginx --dry-run=client -o yaml | kubectl apply -f -
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx --namespace ingress-nginx \
+  --set controller.replicaCount=1 \
+  --set controller.service.type=NodePort \
+  --set controller.service.nodePorts.http=30081 \
+  --set controller.service.nodePorts.https=30444 \
+  --set controller.resources.requests.memory="256Mi" \
+  --set controller.resources.requests.cpu="200m" \
+  --wait --timeout=${HELM_WAIT_TIMEOUT} || echo "Nginx Ingress installation failed, continuing..."
+
+echo "STEP 29: Sample demo app (nginx) to verify cluster"
 kubectl create ns demo --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n demo apply -f - <<'EOF'
 apiVersion: apps/v1
