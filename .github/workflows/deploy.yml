@@ -501,25 +501,37 @@ jobs:
           sed -i "s/127.0.0.1/${{ steps.get-ip.outputs.ip }}/g" ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Verify cluster connection
+      - name: Deploy Nimbus to Kubernetes (via SSH)
         run: |
-          kubectl get nodes
-          kubectl get pods -A
-
-      - name: Deploy with Helm
-        run: |
-          helm upgrade --install nimbus ./helm/nimbus \
-            -n ${{ env.KUBE_NAMESPACE }} \
-            --create-namespace \
-            --set backend.image=${{ needs.build-docker-images.outputs.backend_image }} \
-            --set frontend.image=${{ needs.build-docker-images.outputs.frontend_image }} \
-            --wait \
-            --timeout 5m
-
-      - name: Verify deployment
-        run: |
-          kubectl get all -n ${{ env.KUBE_NAMESPACE }}
-          kubectl get pods -n ${{ env.KUBE_NAMESPACE }}
+          # Copy Helm chart to remote server
+          scp -o StrictHostKeyChecking=no -r ./helm/nimbus ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }}:~/
+          
+          # Deploy via SSH on the remote server
+          ssh -o StrictHostKeyChecking=no ${{ steps.get-ip.outputs.user }}@${{ steps.get-ip.outputs.ip }} << 'EOF'
+            # Wait for K3s to be fully ready
+            sudo kubectl wait --for=condition=Ready nodes --all --timeout=300s
+            
+            # Create namespace
+            sudo kubectl create namespace nimbus --dry-run=client -o yaml | sudo kubectl apply -f -
+            
+            # Deploy with Helm
+            sudo helm upgrade --install nimbus ~/nimbus \
+              -n nimbus \
+              --set backend.image=${{ needs.build-docker-images.outputs.backend_image }} \
+              --set frontend.image=${{ needs.build-docker-images.outputs.frontend_image }} \
+              --wait \
+              --timeout 10m
+            
+            # Verify deployment
+            echo "=== Deployment Status ==="
+            sudo kubectl get all -n nimbus
+            
+            echo "=== Pod Status ==="
+            sudo kubectl get pods -n nimbus
+            
+            echo "=== Service Endpoints ==="
+            sudo kubectl get svc -n nimbus
+          EOF
 
   # Job 7: Deployment Summary
   deployment-summary:
