@@ -454,11 +454,11 @@ jobs:
   # Job 6: Deploy Application to Kubernetes
   deploy-to-kubernetes:
     name: Deploy Application to K8s
-    needs: [run-bootstrap, build-docker-images]
+    needs: [deploy-aws-infrastructure, deploy-azure-infrastructure, build-docker-images]
     runs-on: ubuntu-latest
     if: |
       always() && 
-      needs.run-bootstrap.result == 'success' &&
+      (needs.deploy-aws-infrastructure.result == 'success' || needs.deploy-azure-infrastructure.result == 'success') &&
       needs.build-docker-images.result == 'success' &&
       github.event.inputs.deploy_app == 'true'
     steps:
