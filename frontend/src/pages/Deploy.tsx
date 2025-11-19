@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 export default function Deploy() {
   const [provider, setProvider] = useState('none');
@@ -18,7 +18,7 @@ export default function Deploy() {
     setResult(null);
     
     try {
-      const r = await axios.post('/api/deploy', { provider, name, region });
+      const r = await api.post('/api/deploy', { provider, name, region });
       setResult({ success: true, data: r.data });
     } catch (e: any) {
       setResult({ success: false, error: e.message });

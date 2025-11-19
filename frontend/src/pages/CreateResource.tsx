@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 
 interface ServiceTemplate {
   id: string;
@@ -137,7 +137,7 @@ export default function CreateResource() {
         name: formData.name,
         config: formData,
       };
-      await axios.post('/api/resources', payload);
+      await api.post('/api/resources', payload);
       alert('Resource created successfully!');
       navigate('/resources');
     } catch (err: any) {

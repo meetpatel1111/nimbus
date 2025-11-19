@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 interface Network {
   id: string;
@@ -26,7 +26,7 @@ export default function Networks() {
 
   const loadNetworks = async () => {
     try {
-      const res = await axios.get('/api/networks');
+      const res = await api.get('/api/networks');
       setNetworks(res.data);
     } catch (err) {
       console.error('Failed to load networks:', err);
@@ -35,7 +35,7 @@ export default function Networks() {
 
   const createNetwork = async () => {
     try {
-      await axios.post('/api/networks', formData);
+      await api.post('/api/networks', formData);
       setShowModal(false);
       setFormData({ name: '', cidr: '10.0.0.0/24', type: 'internal' });
       loadNetworks();
@@ -47,7 +47,7 @@ export default function Networks() {
   const deleteNetwork = async (id: string) => {
     if (!confirm('Delete this network?')) return;
     try {
-      await axios.delete(`/api/networks/${id}`);
+      await api.delete(`/api/networks/${id}`);
       loadNetworks();
     } catch (err: any) {
       alert('Failed to delete network: ' + err.message);

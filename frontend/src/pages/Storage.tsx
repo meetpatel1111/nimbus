@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 interface StorageVolume {
   id: string;
@@ -27,7 +27,7 @@ export default function Storage() {
 
   const loadVolumes = async () => {
     try {
-      const res = await axios.get('/api/storage/volumes');
+      const res = await api.get('/api/storage/volumes');
       setVolumes(res.data);
     } catch (err) {
       console.error('Failed to load volumes:', err);
@@ -36,7 +36,7 @@ export default function Storage() {
 
   const createVolume = async () => {
     try {
-      await axios.post('/api/storage/volumes', formData);
+      await api.post('/api/storage/volumes', formData);
       setShowModal(false);
       setFormData({ name: '', size: '10Gi', type: 'longhorn' });
       loadVolumes();
@@ -48,7 +48,7 @@ export default function Storage() {
   const deleteVolume = async (id: string) => {
     if (!confirm('Delete this volume? This action cannot be undone.')) return;
     try {
-      await axios.delete(`/api/storage/volumes/${id}`);
+      await api.delete(`/api/storage/volumes/${id}`);
       loadVolumes();
     } catch (err: any) {
       alert('Failed to delete volume: ' + err.message);

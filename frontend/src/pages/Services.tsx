@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 interface Service {
   id: string;
@@ -39,7 +39,7 @@ export default function Services() {
 
   const loadServices = async () => {
     try {
-      const res = await axios.get('/api/services');
+      const res = await api.get('/api/services');
       setServices(res.data);
     } catch (err) {
       console.error('Failed to load services:', err);
@@ -50,7 +50,7 @@ export default function Services() {
 
   const restartService = async (id: string) => {
     try {
-      await axios.post(`/api/services/${id}/restart`);
+      await api.post(`/api/services/${id}/restart`);
       loadServices();
     } catch (err: any) {
       alert('Failed to restart service: ' + err.message);
@@ -60,7 +60,7 @@ export default function Services() {
   const deleteService = async (service: Service) => {
     if (!confirm(`Delete ${service.name}? This will remove it from Kubernetes.`)) return;
     try {
-      await axios.delete(`/api/services/deployed/${service.name}/${service.namespace}`);
+      await api.delete(`/api/services/deployed/${service.name}/${service.namespace}`);
       alert('Service deleted successfully');
       loadServices();
     } catch (err: any) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 interface VM {
   id: string;
@@ -30,7 +30,7 @@ export default function VirtualMachines() {
 
   const loadVMs = async () => {
     try {
-      const res = await axios.get('/api/vms');
+      const res = await api.get('/api/vms');
       setVms(res.data);
     } catch (err) {
       console.error('Failed to load VMs:', err);
@@ -39,7 +39,7 @@ export default function VirtualMachines() {
 
   const createVM = async () => {
     try {
-      await axios.post('/api/vms', formData);
+      await api.post('/api/vms', formData);
       setShowModal(false);
       setFormData({ name: '', cpu: '2', memory: '4Gi', disk: '20Gi', image: 'ubuntu-22.04' });
       loadVMs();
@@ -51,7 +51,7 @@ export default function VirtualMachines() {
   const deleteVM = async (id: string) => {
     if (!confirm('Delete this VM?')) return;
     try {
-      await axios.delete(`/api/vms/${id}`);
+      await api.delete(`/api/vms/${id}`);
       loadVMs();
     } catch (err: any) {
       alert('Failed to delete VM: ' + err.message);
@@ -60,7 +60,7 @@ export default function VirtualMachines() {
 
   const vmAction = async (id: string, action: string) => {
     try {
-      await axios.post(`/api/vms/${id}/${action}`);
+      await api.post(`/api/vms/${id}/${action}`);
       loadVMs();
     } catch (err: any) {
       alert(`Failed to ${action} VM: ${err.message}`);

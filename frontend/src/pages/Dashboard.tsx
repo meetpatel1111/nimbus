@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 interface Stats {
   vms: { total: number; running: number };
@@ -21,7 +21,7 @@ export default function Dashboard() {
 
   const loadStats = async () => {
     try {
-      const res = await axios.get('/api/dashboard/stats');
+      const res = await api.get('/api/dashboard/stats');
       setStats(res.data);
     } catch (err) {
       console.error('Failed to load stats:', err);

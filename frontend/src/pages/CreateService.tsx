@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 
 export default function CreateService() {
   const [formData, setFormData] = useState({
@@ -20,7 +20,7 @@ export default function CreateService() {
     setResult(null);
 
     try {
-      const res = await axios.post('/api/services/create', formData);
+      const res = await api.post('/api/services/create', formData);
       setResult({ success: true, data: res.data });
     } catch (err: any) {
       setResult({ success: false, error: err.response?.data?.error || err.message });

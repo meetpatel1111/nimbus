@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 
 interface Resource {
   id: string;
@@ -29,7 +29,7 @@ export default function Resources() {
 
   const syncWithK8s = async () => {
     try {
-      const res = await axios.get('/api/resources/sync');
+      const res = await api.get('/api/resources/sync');
       setK8sStatus(res.data);
     } catch (err) {
       console.error('Failed to sync with K8s:', err);
@@ -38,7 +38,7 @@ export default function Resources() {
 
   const loadResources = async () => {
     try {
-      const res = await axios.get('/api/resources');
+      const res = await api.get('/api/resources');
       setResources(res.data);
     } catch (err) {
       console.error('Failed to load resources:', err);
@@ -49,7 +49,7 @@ export default function Resources() {
 
   const handleDelete = async (resource: Resource) => {
     try {
-      await axios.delete(`/api/resources/${resource.id}`);
+      await api.delete(`/api/resources/${resource.id}`);
       alert('Resource deleted successfully');
       loadResources();
       setShowDeleteModal(false);
@@ -61,7 +61,7 @@ export default function Resources() {
   const handleBulkDelete = async () => {
     if (!confirm(`Delete ${selectedResources.length} resources?`)) return;
     try {
-      await Promise.all(selectedResources.map(id => axios.delete(`/api/resources/${id}`)));
+      await Promise.all(selectedResources.map(id => api.delete(`/api/resources/${id}`)));
       alert('Resources deleted successfully');
       setSelectedResources([]);
       loadResources();

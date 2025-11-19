@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api';
 
 interface ServiceConfig {
   id: string;
@@ -453,7 +453,7 @@ export default function ServiceDeployment() {
     
     setLoading(true);
     try {
-      await axios.post('/api/services/deploy', {
+      await api.post('/api/services/deploy', {
         serviceId: selectedService.id,
         name: serviceName,
         helmChart: selectedService.helmChart,
