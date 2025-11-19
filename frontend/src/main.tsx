@@ -8,14 +8,17 @@ import VirtualMachines from './pages/VirtualMachines';
 import Storage from './pages/Storage';
 import Networks from './pages/Networks';
 import Deploy from './pages/Deploy';
+import CloudPortal from './pages/CloudPortal';
 import './styles.css';
+import './styles/azure-portal.css';
 
 function App() {
   return (
     <BrowserRouter>
       <div>
         <nav>
-          <Link to="/">Dashboard</Link>
+          <Link to="/">Cloud Portal</Link>
+          <Link to="/dashboard">Dashboard</Link>
           <Link to="/services">Services</Link>
           <Link to="/services/create">+ Create Service</Link>
           <Link to="/vms">VMs</Link>
@@ -24,7 +27,8 @@ function App() {
           <Link to="/deploy">Deploy</Link>
         </nav>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
+          <Route path="/" element={<CloudPortal />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/services" element={<Services />} />
           <Route path="/services/create" element={<CreateService />} />
           <Route path="/vms" element={<VirtualMachines />} />
