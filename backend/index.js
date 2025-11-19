@@ -358,11 +358,20 @@ app.post('/api/services/create', async (req, res) => {
   if (!name || !namespace || !image) {
     return res.status(400).json({ error: 'Missing required fields: name, namespace, image' });
   }
-
+  
   console.log(`Creating service: ${name} in namespace ${namespace}`);
   
   try {
     const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
     
     // Ensure namespace exists
     await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
@@ -477,6 +486,16 @@ app.post('/api/vms', async (req, res) => {
   
   try {
     const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
+    
     const namespace = 'default';
     
     // Ensure namespace exists
@@ -656,36 +675,27 @@ app.post('/api/storage/volumes', async (req, res) => {
   
   try {
     const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
+    
     const namespace = 'default';
     
     // Ensure namespace exists
     await execAsync(`kubectl create namespace ${namespace} --dry-run=client -o yaml | kubectl apply -f -`).catch(() => {});
     
-    // Create PVC with labels for tracking
-    const pvc = {
-      apiVersion: 'v1',
-      kind: 'PersistentVolumeClaim',
-      metadata: {
-        name: name,
-        namespace: namespace,
-        labels: {
-          'nimbus-type': 'volume',
-          'nimbus-storage-type': type || 'longhorn'
-        }
-      },
-      spec: {
-        accessModes: ['ReadWriteOnce'],
-        storageClassName: type || 'longhorn',
-        resources: {
-          requests: {
-            storage: size || '10Gi'
-          }
-        }
-      }
-    };
+    // Create PVC using kubernetes-client
+    const result = await k8s.createPVC(namespace, name, size || '10Gi', type || 'longhorn');
     
-    const yaml = JSON.stringify(pvc);
-    await execAsync(`echo '${yaml}' | kubectl apply -f -`);
+    if (!result.success) {
+      throw new Error(result.error);
+    }
     
     console.log(`✅ Created volume: ${name}`);
     
@@ -837,9 +847,18 @@ app.post('/api/resources', async (req, res) => {
   
   console.log(`Creating resource: ${name} (${type})`);
   
-  // Deploy to Kubernetes based on resource type
   try {
     const k8s = require('./kubernetes-client');
+    
+    // Check if K8s is available
+    const clusterStatus = await k8s.checkClusterConnection();
+    if (!clusterStatus.connected) {
+      return res.status(503).json({ 
+        error: 'Kubernetes cluster not available',
+        message: 'Please ensure K3s is running and kubectl is configured'
+      });
+    }
+    
     const namespace = config.resourceGroup || 'default';
     
     // Ensure namespace exists
