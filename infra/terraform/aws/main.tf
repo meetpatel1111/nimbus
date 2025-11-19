@@ -141,7 +141,7 @@ resource "aws_instance" "nimbus" {
   key_name               = var.key_pair_name
   
   root_block_device {
-    volume_size = 500  # 500 GB for all services
+    volume_size = 150  # 150 GB disk
     volume_type = "gp3"
   }
 
