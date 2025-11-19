@@ -242,6 +242,191 @@ const ALL_DEPLOYABLE_SERVICES: ServiceConfig[] = [
       { name: 'storage', label: 'Storage (GB)', type: 'number', default: 20 },
     ]
   },
+  
+  // Platform Services
+  {
+    id: 'traefik',
+    name: 'Traefik',
+    icon: '🌐',
+    category: 'Ingress',
+    description: 'Ingress controller',
+    helmChart: 'traefik/traefik',
+    namespace: 'ingress',
+    defaultValues: { 'service.type': 'NodePort' },
+    configFields: [
+      { name: 'dashboard', label: 'Enable Dashboard', type: 'toggle', default: true },
+    ]
+  },
+  {
+    id: 'nginx-ingress',
+    name: 'Nginx Ingress',
+    icon: '🔷',
+    category: 'Ingress',
+    description: 'Nginx ingress controller',
+    helmChart: 'ingress-nginx/ingress-nginx',
+    namespace: 'ingress-nginx',
+    defaultValues: { 'controller.service.type': 'NodePort' },
+    configFields: [
+      { name: 'replicas', label: 'Replicas', type: 'number', default: 1 },
+    ]
+  },
+  {
+    id: 'longhorn',
+    name: 'Longhorn',
+    icon: '💿',
+    category: 'Storage',
+    description: 'Distributed block storage',
+    helmChart: 'longhorn/longhorn',
+    namespace: 'longhorn-system',
+    defaultValues: {},
+    configFields: [
+      { name: 'defaultDataPath', label: 'Data Path', type: 'text', default: '/var/lib/longhorn' },
+    ]
+  },
+  
+  // Messaging & Streaming
+  {
+    id: 'nats',
+    name: 'NATS',
+    icon: '⚡',
+    category: 'Messaging',
+    description: 'High-performance messaging',
+    helmChart: 'nats/nats',
+    namespace: 'apps',
+    defaultValues: {},
+    configFields: [
+      { name: 'replicas', label: 'Replicas', type: 'number', default: 1 },
+    ]
+  },
+  
+  // Observability
+  {
+    id: 'loki',
+    name: 'Loki',
+    icon: '📝',
+    category: 'Observability',
+    description: 'Log aggregation',
+    helmChart: 'grafana/loki-stack',
+    namespace: 'monitoring',
+    defaultValues: { 'promtail.enabled': true },
+    configFields: [
+      { name: 'persistence', label: 'Enable Persistence', type: 'toggle', default: true },
+    ]
+  },
+  {
+    id: 'jaeger',
+    name: 'Jaeger',
+    icon: '🔎',
+    category: 'Observability',
+    description: 'Distributed tracing',
+    helmChart: 'jaegertracing/jaeger',
+    namespace: 'observability',
+    defaultValues: { 'allInOne.enabled': true },
+    configFields: [
+      { name: 'storage', label: 'Storage Type', type: 'select', options: ['memory', 'elasticsearch'], default: 'memory' },
+    ]
+  },
+  
+  // CI/CD
+  {
+    id: 'argocd',
+    name: 'ArgoCD',
+    icon: '🚀',
+    category: 'CI/CD',
+    description: 'GitOps continuous delivery',
+    helmChart: 'argo/argo-cd',
+    namespace: 'argocd',
+    defaultValues: {},
+    configFields: [
+      { name: 'server.service.type', label: 'Service Type', type: 'select', options: ['ClusterIP', 'NodePort', 'LoadBalancer'], default: 'NodePort' },
+    ]
+  },
+  {
+    id: 'drone',
+    name: 'Drone CI',
+    icon: '🤖',
+    category: 'CI/CD',
+    description: 'CI/CD pipeline',
+    helmChart: 'drone/drone',
+    namespace: 'ci',
+    defaultValues: {},
+    configFields: [
+      { name: 'replicas', label: 'Replicas', type: 'number', default: 1 },
+    ]
+  },
+  
+  // Serverless
+  {
+    id: 'openfaas',
+    name: 'OpenFaaS',
+    icon: '⚙️',
+    category: 'Serverless',
+    description: 'Serverless functions',
+    helmChart: 'openfaas/openfaas',
+    namespace: 'openfaas',
+    defaultValues: { 'functionNamespace': 'openfaas-fn' },
+    configFields: [
+      { name: 'gateway.replicas', label: 'Gateway Replicas', type: 'number', default: 1 },
+    ]
+  },
+  
+  // Service Mesh
+  {
+    id: 'istio',
+    name: 'Istio',
+    icon: '🕸️',
+    category: 'Service Mesh',
+    description: 'Service mesh',
+    helmChart: 'istio/istiod',
+    namespace: 'istio-system',
+    defaultValues: {},
+    configFields: [
+      { name: 'pilot.resources.requests.memory', label: 'Memory', type: 'text', default: '512Mi' },
+    ]
+  },
+  
+  // Security
+  {
+    id: 'cert-manager',
+    name: 'Cert-Manager',
+    icon: '🔒',
+    category: 'Security',
+    description: 'SSL certificate management',
+    helmChart: 'jetstack/cert-manager',
+    namespace: 'cert-manager',
+    defaultValues: { 'installCRDs': true },
+    configFields: [
+      { name: 'replicas', label: 'Replicas', type: 'number', default: 1 },
+    ]
+  },
+  {
+    id: 'kyverno',
+    name: 'Kyverno',
+    icon: '🛡️',
+    category: 'Security',
+    description: 'Policy engine',
+    helmChart: 'kyverno/kyverno',
+    namespace: 'kyverno',
+    defaultValues: {},
+    configFields: [
+      { name: 'replicaCount', label: 'Replicas', type: 'number', default: 1 },
+    ]
+  },
+  
+  // Backup
+  {
+    id: 'velero',
+    name: 'Velero',
+    icon: '💾',
+    category: 'Backup',
+    description: 'Backup and restore',
+    helmChart: 'vmware-tanzu/velero',
+    namespace: 'velero',
+    defaultValues: { 'configuration.provider': 'aws' },
+    configFields: [
+      { name: 'provider', label: 'Provider', type: 'select', options: ['aws', 'azure', 'gcp'], default: 'aws' },
+    ]
+  },
 ];
 
 export default function ServiceDeployment() {
