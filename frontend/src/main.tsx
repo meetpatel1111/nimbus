@@ -1,6 +1,6 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Services from './pages/Services';
 import CreateService from './pages/CreateService';
@@ -13,32 +13,19 @@ import CreateResource from './pages/CreateResource';
 import Resources from './pages/Resources';
 import ResourceGroups from './pages/ResourceGroups';
 import ServiceDeployment from './pages/ServiceDeployment';
-import './styles.css';
-import './styles/azure-portal.css';
+import './styles/modern-ui.css';
 
 function App() {
   return (
     <BrowserRouter>
-      <div>
-        <nav>
-          <Link to="/">Cloud Portal</Link>
-          <Link to="/resources">All Resources</Link>
-          <Link to="/resource-groups">Resource Groups</Link>
-          <Link to="/create-resource">+ Create</Link>
-          <Link to="/dashboard">Dashboard</Link>
-          <Link to="/services">Services</Link>
-          <Link to="/vms">VMs</Link>
-          <Link to="/storage">Storage</Link>
-          <Link to="/networks">Networks</Link>
-          <Link to="/deploy">Deploy</Link>
-        </nav>
+      <Layout>
         <Routes>
           <Route path="/" element={<CloudPortal />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/resources" element={<Resources />} />
           <Route path="/resource-groups" element={<ResourceGroups />} />
           <Route path="/create-resource" element={<CreateResource />} />
           <Route path="/deploy-service" element={<ServiceDeployment />} />
-          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/services" element={<Services />} />
           <Route path="/services/create" element={<CreateService />} />
           <Route path="/vms" element={<VirtualMachines />} />
@@ -46,7 +33,7 @@ function App() {
           <Route path="/networks" element={<Networks />} />
           <Route path="/deploy" element={<Deploy />} />
         </Routes>
-      </div>
+      </Layout>
     </BrowserRouter>
   );
 }
